@@ -1,10 +1,13 @@
+import csv
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from src.document_restoration.chunker import create_chunks
+from src.document_restoration.exporter import write_submission_csv
 from src.document_restoration.image_loader import load_images
-from src.document_restoration.models import ImageRecord
+from src.document_restoration.merge import merge_chunk_markdown
+from src.document_restoration.models import DocumentResult, ImageRecord
 from src.document_restoration.vl_client import FinixDocVLClient, MockVLClient
 
 
@@ -67,6 +70,39 @@ class MockVLClientTests(unittest.TestCase):
 
         with self.assertRaises(NotImplementedError):
             FinixDocVLClient().parse_chunk(chunk)
+
+
+class MergeTests(unittest.TestCase):
+    def test_merge_chunk_markdown_orders_by_chunk_id_and_skips_empty_text(self):
+        image = ImageRecord(file_name="doc.jpg", path=Path("doc.jpg").resolve())
+        chunk_2 = create_chunks(image)[0]
+        chunk_1 = create_chunks(image)[0]
+        object.__setattr__(chunk_2, "chunk_id", 2)
+        object.__setattr__(chunk_1, "chunk_id", 1)
+
+        markdown = merge_chunk_markdown([(chunk_2, "第二段"), (chunk_1, "第一段"), (chunk_1, "   ")])
+
+        self.assertEqual(markdown, "第一段\n\n第二段")
+
+
+class ExporterTests(unittest.TestCase):
+    def test_write_submission_csv_writes_exact_columns_and_escapes_markdown(self):
+        with TemporaryDirectory() as tmp:
+            output = Path(tmp) / "submission.csv"
+            results = [
+                DocumentResult(file_name="a.jpg", markdown="# 标题\n\n含,逗号和\"引号\""),
+                DocumentResult(file_name="b.jpg", markdown="正文"),
+            ]
+
+            write_submission_csv(results, output)
+
+            with output.open("r", encoding="utf-8", newline="") as f:
+                rows = list(csv.DictReader(f))
+
+            self.assertEqual(rows[0]["file_name"], "a.jpg")
+            self.assertEqual(rows[0]["ground_truth"], "# 标题\n\n含,逗号和\"引号\"")
+            self.assertEqual(rows[1]["file_name"], "b.jpg")
+            self.assertEqual(set(rows[0].keys()), {"file_name", "ground_truth"})
 
 
 if __name__ == "__main__":
