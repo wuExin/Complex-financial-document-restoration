@@ -1,36 +1,36 @@
-# MVP Document Restoration Design
+# MVP 文档还原系统设计
 
-## Goal
+## 目标
 
-Build a minimal end-to-end baseline for the AFAC complex financial document restoration project. The MVP must run from an image directory to a valid submission CSV without depending on the unavailable FinixDoc-VL API details.
+构建 AFAC 复杂金融文档还原项目的最小端到端 baseline。MVP 需要在暂时不知道 FinixDoc-VL API 细节的情况下，从图片目录运行到合法的提交 CSV。
 
-The first version optimizes for a working engineering pipeline, not leaderboard quality.
+第一版优先保证工程链路跑通，不追求榜单效果。
 
-## Scope
+## 范围
 
-In scope:
+本期包含：
 
-- Scan an input directory for image files.
-- Preserve each image file name in the output.
-- Represent each image as one chunk in the MVP.
-- Define a replaceable `VLClient` interface for image chunk parsing.
-- Provide a mock local client that can run without network access.
-- Merge chunk Markdown into one document per image.
-- Write a UTF-8 CSV with exactly `file_name` and `ground_truth`.
-- Log progress and continue processing when one image fails.
+- 扫描输入目录中的图片文件。
+- 在输出中保留每张图片的原始文件名。
+- MVP 阶段将每张图片视为一个 chunk。
+- 定义可替换的 `VLClient` 图片块解析接口。
+- 提供不依赖网络的本地 mock client。
+- 将 chunk Markdown 合并为每张图片的一篇文档。
+- 写出 UTF-8 CSV，字段严格为 `file_name` 和 `ground_truth`。
+- 输出运行日志，并在单张图片失败时继续处理其他图片。
 
-Out of scope for MVP:
+本期不包含：
 
-- Real FinixDoc-VL HTTP integration.
-- Advanced long-image slicing.
-- Multi-column reading order recovery.
-- Deduplication across overlapping chunks.
-- Markdown table repair.
-- Online scoring or TEDS evaluation.
+- 真实 FinixDoc-VL HTTP 接入。
+- 高级长图切片。
+- 多栏阅读顺序恢复。
+- 重叠切块去重。
+- Markdown 表格修复。
+- 线上评分或 TEDS 评估。
 
-## Architecture
+## 架构
 
-The MVP uses a small Python package plus `main.py`.
+MVP 使用一个小型 Python package 加 `main.py` 入口。
 
 ```text
 main.py
@@ -43,13 +43,13 @@ main.py
 
 ### `image_loader`
 
-Finds supported image files under `--input_dir`, sorted by file name for deterministic output. Supported extensions are `.jpg`, `.jpeg`, `.png`, `.bmp`, `.tif`, and `.tiff`.
+在 `--input_dir` 下查找支持的图片文件，并按文件名排序，保证输出顺序可复现。支持扩展名包括 `.jpg`、`.jpeg`、`.png`、`.bmp`、`.tif`、`.tiff`。
 
-It returns lightweight image records with file name and absolute path. It does not decode full image pixels in the MVP.
+MVP 中只返回轻量图片记录，包括文件名和绝对路径，不解码完整图片像素。
 
 ### `chunker`
 
-Creates one chunk per image:
+MVP 中每张图片生成一个 chunk：
 
 ```text
 chunk_id = 0
@@ -57,77 +57,77 @@ x = 0
 y = 0
 width = null
 height = null
-path = original image path
+path = 原始图片路径
 ```
 
-This keeps the interface compatible with later real slicing while avoiding image memory risk in the baseline.
+这样既能保持后续真实切片的接口形态，又能避免 baseline 阶段引入图片内存风险。
 
 ### `vl_client`
 
-Defines the parsing boundary:
+定义图片解析边界：
 
 ```python
 parse_chunk(chunk) -> str
 ```
 
-MVP implementation:
+MVP 实现：
 
-- `MockVLClient` looks for a matching ground-truth Markdown file when `--gt_dir` is provided or can be inferred from a sibling `mds` directory.
-- If no Markdown file exists, it returns a deterministic placeholder that includes the source image name.
+- `MockVLClient` 在指定 `--gt_dir` 或可推断的同级 `mds` 目录中查找 `{图片 stem}.md`。
+- 如果找不到对应 Markdown 文件，则返回包含源图片名的确定性兜底文本。
 
-Future implementation:
+后续实现：
 
-- `FinixDocVLClient` will send chunk images to the official API after endpoint, authentication, request format, and response schema are known.
+- `FinixDocVLClient` 在官方 endpoint、鉴权方式、请求格式和响应结构明确后，再负责调用真实 FinixDoc-VL API。
 
 ### `merge`
 
-Sorts chunks by `chunk_id` and joins non-empty Markdown fragments with blank lines. For MVP, each image has one chunk, so merge is intentionally simple.
+按 `chunk_id` 排序，将非空 Markdown 片段用空行拼接。MVP 中每张图片只有一个 chunk，所以合并逻辑保持简单。
 
 ### `exporter`
 
-Writes CSV using Python's standard `csv` module to ensure quoting of newlines, commas, and quotes. It validates:
+使用 Python 标准库 `csv` 写 CSV，确保 Markdown 中的换行、逗号和引号被正确转义。导出时校验：
 
-- header is exactly `file_name,ground_truth`;
-- row count equals processed image count;
-- every input image has one output row.
+- 表头严格为 `file_name,ground_truth`；
+- 输出行数等于已处理图片数；
+- 每张输入图片都有一行输出。
 
 ## CLI
 
-Primary command:
+主命令：
 
 ```bash
 python main.py --input_dir "data/AFAC 训练数据集/finixdocbench_huge_long_100/images" --output submission.csv
 ```
 
-Optional arguments:
+可选参数：
 
-- `--gt_dir`: directory containing `{image_stem}.md` files.
-- `--client`: `mock` by default. `finixdoc` is reserved and should fail with a clear "not implemented" error until official API details are available.
-- `--log_level`: defaults to `INFO`.
+- `--gt_dir`：包含 `{image_stem}.md` 的目录。
+- `--client`：默认 `mock`。`finixdoc` 作为预留选项，在官方 API 细节明确前应给出清晰的未实现错误。
+- `--log_level`：默认 `INFO`。
 
-## Error Handling
+## 错误处理
 
-Image-level failures must not abort the whole run. The pipeline logs the failure and writes an empty string for that image's `ground_truth` only if parsing fails unexpectedly.
+单张图片处理失败时不应中断整个任务。系统记录错误日志，并仅在解析异常时为该图片写入空字符串作为 `ground_truth`。
 
-Configuration errors, such as missing input directory or unsupported client name, fail fast.
+配置错误需要快速失败，例如输入目录不存在或 client 名称不支持。
 
-## Testing
+## 测试
 
-MVP tests should cover:
+MVP 测试覆盖：
 
-- image discovery and deterministic ordering;
-- one-image-one-chunk behavior;
-- mock client reading `{stem}.md`;
-- mock client placeholder fallback;
-- CSV output escaping and exact columns;
-- end-to-end run on a temporary image/Markdown fixture.
+- 图片发现和确定性排序；
+- 每张图片一个 chunk；
+- mock client 读取 `{stem}.md`；
+- mock client 兜底文本；
+- CSV 输出转义和精确字段；
+- 基于临时图片/Markdown fixture 的端到端运行。
 
-## Success Criteria
+## 成功标准
 
-The MVP is complete when:
+MVP 完成条件：
 
-- `python main.py --input_dir <images> --output submission.csv` runs successfully.
-- The output CSV has exactly two columns: `file_name` and `ground_truth`.
-- Running against a training image directory with sibling `mds` can populate Markdown from local GT files.
-- Running against a directory without GT still produces a valid CSV with deterministic placeholders.
-- The code structure allows replacing `MockVLClient` with a real FinixDoc-VL client without changing the pipeline.
+- `python main.py --input_dir <images> --output submission.csv` 可以成功运行。
+- 输出 CSV 严格包含两列：`file_name` 和 `ground_truth`。
+- 对带有同级 `mds` 目录的训练集运行时，可以从本地 GT Markdown 填充结果。
+- 对没有 GT 的目录运行时，也能生成合法 CSV，并使用确定性兜底文本。
+- 代码结构允许后续替换 `MockVLClient` 为真实 FinixDoc-VL client，而不改变主流程。
