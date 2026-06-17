@@ -195,5 +195,90 @@ class FinixDocResponseParsingTests(unittest.TestCase):
             self._client()._parse_response(response)
 
 
+class FinixDocCacheTests(unittest.TestCase):
+    def _make_chunk(
+        self,
+        root: Path,
+        content: bytes = b"image-bytes",
+        file_name: str = "doc.jpg",
+    ) -> object:
+        path = root / file_name
+        path.write_bytes(content)
+        image = ImageRecord(file_name=file_name, path=path)
+        return create_chunks(image)[0]
+
+    def _client(
+        self,
+        cache_dir: Path | None,
+        user_id: str = "finixA1001",
+    ) -> FinixDocVLClient:
+        return FinixDocVLClient(
+            user_id=user_id,
+            api_key="key",
+            endpoint="https://example.invalid/api",
+            timeout=30,
+            max_retries=0,
+            cache_dir=cache_dir,
+        )
+
+    def test_cache_key_is_stable_for_same_inputs(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            chunk = self._make_chunk(root)
+            client = self._client(root)
+
+            key_a = client._cache_key(chunk)
+            key_b = client._cache_key(chunk)
+
+            self.assertEqual(key_a, key_b)
+            self.assertTrue(key_a.endswith(".md"))
+
+    def test_cache_key_changes_with_user_id(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            chunk = self._make_chunk(root)
+            client_a = self._client(root, user_id="finixA1001")
+            client_b = self._client(root, user_id="finixB2002")
+
+            self.assertNotEqual(client_a._cache_key(chunk), client_b._cache_key(chunk))
+
+    def test_cache_key_changes_with_file_content(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            chunk_a = self._make_chunk(root, b"bytes-a", file_name="a.jpg")
+            chunk_b = self._make_chunk(root, b"bytes-b", file_name="b.jpg")
+            client = self._client(root)
+
+            self.assertNotEqual(client._cache_key(chunk_a), client._cache_key(chunk_b))
+
+    def test_write_and_read_cache_round_trip(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            chunk = self._make_chunk(root)
+            cache_dir = root / "cache"
+            client = self._client(cache_dir)
+
+            key = client._cache_key(chunk)
+            client._write_cache(key, "# 标题\n\n正文")
+
+            self.assertEqual(client._read_cache(key), "# 标题\n\n正文")
+
+    def test_read_cache_returns_none_when_missing(self):
+        with TemporaryDirectory() as tmp:
+            client = self._client(Path(tmp))
+
+            self.assertIsNone(client._read_cache("nonexistent.md"))
+
+    def test_cache_disabled_returns_none_on_read(self):
+        client = self._client(cache_dir=None)
+
+        self.assertIsNone(client._read_cache("any.md"))
+
+    def test_cache_disabled_write_is_noop(self):
+        client = self._client(cache_dir=None)
+
+        client._write_cache("any.md", "value")
+
+
 if __name__ == "__main__":
     unittest.main()

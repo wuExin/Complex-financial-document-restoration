@@ -133,6 +133,29 @@ class FinixDocVLClient:
 
         return None
 
+    def _cache_key(self, chunk: ImageChunk) -> str:
+        hasher = hashlib.sha256()
+        hasher.update(chunk.source.path.read_bytes())
+        hasher.update(chunk.source.file_name.encode("utf-8"))
+        hasher.update(b"finixdoc")
+        hasher.update(self.endpoint.encode("utf-8"))
+        hasher.update(self.user_id.encode("utf-8"))
+        return f"{hasher.hexdigest()}.md"
+
+    def _read_cache(self, key: str) -> str | None:
+        if self.cache_dir is None:
+            return None
+        path = self.cache_dir / key
+        if not path.exists():
+            return None
+        return path.read_text(encoding="utf-8")
+
+    def _write_cache(self, key: str, markdown: str) -> None:
+        if self.cache_dir is None:
+            return
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        (self.cache_dir / key).write_text(markdown, encoding="utf-8")
+
     def parse_chunk(self, chunk: ImageChunk) -> str:
         raise NotImplementedError(
             "FinixDocVLClient.parse_chunk will be implemented in a later task."
