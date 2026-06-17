@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+from main import create_client
 from src.document_restoration.chunker import create_chunks
 from src.document_restoration.exporter import write_submission_csv
 from src.document_restoration.image_loader import load_images
@@ -12,6 +13,13 @@ from src.document_restoration.merge import merge_chunk_markdown
 from src.document_restoration.models import DocumentResult, ImageRecord
 from src.document_restoration.pipeline import run_pipeline
 from src.document_restoration.vl_client import FinixDocVLClient, MockVLClient
+
+
+class FailingOneImageClient:
+    def parse_chunk(self, chunk):
+        if chunk.source.file_name == "bad.jpg":
+            raise RuntimeError("parse failed")
+        return f"# Parsed {chunk.source.file_name}"
 
 
 class ImageLoaderTests(unittest.TestCase):
@@ -109,6 +117,13 @@ class ExporterTests(unittest.TestCase):
 
 
 class PipelineTests(unittest.TestCase):
+    def test_create_finixdoc_client_fails_before_processing(self):
+        with self.assertRaisesRegex(
+            NotImplementedError,
+            "FinixDoc-VL API details are not available yet. Use --client mock.",
+        ):
+            create_client("finixdoc", None)
+
     def test_run_pipeline_uses_mock_gt_and_writes_csv(self):
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -126,6 +141,27 @@ class PipelineTests(unittest.TestCase):
             self.assertEqual(results[0].file_name, "doc.jpg")
             self.assertEqual(results[0].markdown, "# 文档\n\n正文")
             self.assertTrue(output.exists())
+
+    def test_run_pipeline_keeps_global_task_when_single_image_parse_fails(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            images = root / "images"
+            images.mkdir()
+            (images / "bad.jpg").write_bytes(b"fake")
+            (images / "good.jpg").write_bytes(b"fake")
+            output = root / "submission.csv"
+
+            with self.assertLogs("src.document_restoration.pipeline", level="ERROR") as logs:
+                results = run_pipeline(images, output, FailingOneImageClient())
+
+            with output.open("r", encoding="utf-8", newline="") as f:
+                rows = list(csv.DictReader(f))
+
+            self.assertIn("Failed to process bad.jpg", "\n".join(logs.output))
+            self.assertEqual([r.file_name for r in results], ["bad.jpg", "good.jpg"])
+            self.assertEqual([row["file_name"] for row in rows], ["bad.jpg", "good.jpg"])
+            self.assertEqual(rows[0]["ground_truth"], "")
+            self.assertEqual(rows[1]["ground_truth"], "# Parsed good.jpg")
 
     def test_main_cli_runs_with_mock_client(self):
         with TemporaryDirectory() as tmp:

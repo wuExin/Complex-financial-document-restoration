@@ -3,7 +3,7 @@ import logging
 from pathlib import Path
 
 from src.document_restoration.pipeline import run_pipeline
-from src.document_restoration.vl_client import FinixDocVLClient, MockVLClient
+from src.document_restoration.vl_client import MockVLClient
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -29,7 +29,9 @@ def create_client(client_name: str, gt_dir: str | None):
     if client_name == "mock":
         return MockVLClient(Path(gt_dir) if gt_dir else None)
     if client_name == "finixdoc":
-        return FinixDocVLClient()
+        raise NotImplementedError(
+            "FinixDoc-VL API details are not available yet. Use --client mock."
+        )
     raise ValueError(f"Unsupported client: {client_name}")
 
 
