@@ -83,6 +83,56 @@ class FinixDocVLClient:
         self.max_retries = max_retries
         self.cache_dir = cache_dir.expanduser().resolve() if cache_dir else None
 
+    def _parse_response(self, response: requests.Response) -> str:
+        content_type = response.headers.get("Content-Type", "")
+        body = response.text or ""
+
+        looks_like_json = (
+            "application/json" in content_type
+            or body.lstrip().startswith(("{", "["))
+        )
+
+        if looks_like_json:
+            try:
+                payload = response.json()
+            except ValueError:
+                payload = None
+            extracted = self._extract_markdown(payload)
+            if extracted is not None:
+                return extracted
+            # JSON-shaped body with no recognizable markdown field is a hard error;
+            # never fall back to dumping raw JSON as the document text.
+            raise ValueError("Response did not contain parseable markdown.")
+
+        if body.strip():
+            return body.strip()
+
+        raise ValueError("Response did not contain parseable markdown.")
+
+    @staticmethod
+    def _extract_markdown(payload: object) -> str | None:
+        if not isinstance(payload, dict):
+            return None
+
+        top = payload.get("markdown")
+        if isinstance(top, str) and top.strip():
+            return top.strip()
+
+        data = payload.get("data")
+        if isinstance(data, dict):
+            inner = data.get("markdown")
+            if isinstance(inner, str) and inner.strip():
+                return inner.strip()
+
+        result = payload.get("result")
+        if isinstance(result, str) and result.strip():
+            return result.strip()
+
+        if isinstance(data, str) and data.strip():
+            return data.strip()
+
+        return None
+
     def parse_chunk(self, chunk: ImageChunk) -> str:
         raise NotImplementedError(
             "FinixDocVLClient.parse_chunk will be implemented in a later task."

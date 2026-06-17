@@ -1,6 +1,9 @@
+import json
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import Any
+from unittest.mock import MagicMock
 
 from src.document_restoration.chunker import create_chunks
 from src.document_restoration.models import ImageRecord
@@ -109,6 +112,87 @@ class FinixDocClientConstructionTests(unittest.TestCase):
                 max_retries=-1,
                 cache_dir=None,
             )
+
+
+def _make_response(
+    status_code: int = 200,
+    body: Any = None,
+    content_type: str | None = None,
+) -> MagicMock:
+    response = MagicMock()
+    response.status_code = status_code
+    response.headers = {"Content-Type": content_type} if content_type else {}
+    if isinstance(body, str):
+        response.text = body
+        response.json.side_effect = ValueError("not json")
+    elif body is None:
+        response.text = ""
+        response.json.side_effect = ValueError("not json")
+    else:
+        response.json.return_value = body
+        response.text = json.dumps(body)
+    return response
+
+
+class FinixDocResponseParsingTests(unittest.TestCase):
+    def _client(self) -> FinixDocVLClient:
+        return FinixDocVLClient(
+            user_id=DEFAULT_USER_ID,
+            api_key=DEFAULT_API_KEY,
+            endpoint=DEFAULT_ENDPOINT,
+            timeout=30,
+            max_retries=0,
+            cache_dir=None,
+        )
+
+    def test_parse_response_reads_top_level_markdown(self):
+        response = _make_response(body={"markdown": "# 标题\n\n正文"})
+
+        markdown = self._client()._parse_response(response)
+
+        self.assertEqual(markdown, "# 标题\n\n正文")
+
+    def test_parse_response_reads_data_markdown_when_top_level_missing(self):
+        response = _make_response(body={"data": {"markdown": "从 data 取出"}})
+
+        markdown = self._client()._parse_response(response)
+
+        self.assertEqual(markdown, "从 data 取出")
+
+    def test_parse_response_reads_result_field_when_no_markdown(self):
+        response = _make_response(body={"result": "从 result 取出"})
+
+        markdown = self._client()._parse_response(response)
+
+        self.assertEqual(markdown, "从 result 取出")
+
+    def test_parse_response_reads_data_string_when_no_other_fields(self):
+        response = _make_response(body={"data": "纯字符串"})
+
+        markdown = self._client()._parse_response(response)
+
+        self.assertEqual(markdown, "纯字符串")
+
+    def test_parse_response_returns_plain_text_when_not_json(self):
+        response = _make_response(
+            body="直接返回的 markdown", content_type="text/markdown"
+        )
+
+        markdown = self._client()._parse_response(response)
+
+        self.assertEqual(markdown, "直接返回的 markdown")
+
+    def test_parse_response_raises_when_markdown_blank(self):
+        response = _make_response(body={"markdown": "   "})
+
+        with self.assertRaisesRegex(ValueError, "markdown"):
+            self._client()._parse_response(response)
+
+    def test_parse_response_raises_when_body_empty(self):
+        response = _make_response(body=None)
+
+        with self.assertRaisesRegex(ValueError, "markdown"):
+            self._client()._parse_response(response)
 
 
 if __name__ == "__main__":
