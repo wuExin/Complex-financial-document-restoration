@@ -1,4 +1,6 @@
 import csv
+import subprocess
+import sys
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -8,6 +10,7 @@ from src.document_restoration.exporter import write_submission_csv
 from src.document_restoration.image_loader import load_images
 from src.document_restoration.merge import merge_chunk_markdown
 from src.document_restoration.models import DocumentResult, ImageRecord
+from src.document_restoration.pipeline import run_pipeline
 from src.document_restoration.vl_client import FinixDocVLClient, MockVLClient
 
 
@@ -103,6 +106,54 @@ class ExporterTests(unittest.TestCase):
             self.assertEqual(rows[0]["ground_truth"], "# 标题\n\n含,逗号和\"引号\"")
             self.assertEqual(rows[1]["file_name"], "b.jpg")
             self.assertEqual(set(rows[0].keys()), {"file_name", "ground_truth"})
+
+
+class PipelineTests(unittest.TestCase):
+    def test_run_pipeline_uses_mock_gt_and_writes_csv(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            images = root / "images"
+            mds = root / "mds"
+            images.mkdir()
+            mds.mkdir()
+            (images / "doc.jpg").write_bytes(b"fake")
+            (mds / "doc.md").write_text("# 文档\n\n正文", encoding="utf-8")
+            output = root / "submission.csv"
+
+            results = run_pipeline(images, output, MockVLClient(gt_dir=mds))
+
+            self.assertEqual(len(results), 1)
+            self.assertEqual(results[0].file_name, "doc.jpg")
+            self.assertEqual(results[0].markdown, "# 文档\n\n正文")
+            self.assertTrue(output.exists())
+
+    def test_main_cli_runs_with_mock_client(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            images = root / "images"
+            images.mkdir()
+            (images / "doc.jpg").write_bytes(b"fake")
+            output = root / "submission.csv"
+
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    "main.py",
+                    "--input_dir",
+                    str(images),
+                    "--output",
+                    str(output),
+                    "--client",
+                    "mock",
+                ],
+                cwd=Path.cwd(),
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            self.assertTrue(output.exists())
 
 
 if __name__ == "__main__":
