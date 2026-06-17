@@ -3,7 +3,9 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
+
+import requests as requests_lib
 
 from src.document_restoration.chunker import create_chunks
 from src.document_restoration.models import ImageRecord
@@ -278,6 +280,131 @@ class FinixDocCacheTests(unittest.TestCase):
         client = self._client(cache_dir=None)
 
         client._write_cache("any.md", "value")
+
+
+class FinixDocParseChunkTests(unittest.TestCase):
+    def _make_chunk(self, root: Path, file_name: str = "doc.jpg") -> object:
+        path = root / file_name
+        path.write_bytes(b"image-bytes")
+        image = ImageRecord(file_name=file_name, path=path)
+        return create_chunks(image)[0]
+
+    def _client(
+        self,
+        cache_dir: Path | None,
+        max_retries: int = 2,
+    ) -> FinixDocVLClient:
+        return FinixDocVLClient(
+            user_id="finixA1001",
+            api_key="key",
+            endpoint="https://example.invalid/api",
+            timeout=30,
+            max_retries=max_retries,
+            cache_dir=cache_dir,
+        )
+
+    @patch("src.document_restoration.vl_client.requests.post")
+    def test_parse_chunk_returns_markdown_from_api(self, mock_post):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            chunk = self._make_chunk(root)
+            client = self._client(cache_dir=None)
+            mock_post.return_value = _make_response(body={"markdown": "# 标题"})
+
+            markdown = client.parse_chunk(chunk)
+
+            self.assertEqual(markdown, "# 标题")
+            mock_post.assert_called_once()
+
+    @patch("src.document_restoration.vl_client.requests.post")
+    def test_parse_chunk_writes_cache_on_success(self, mock_post):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            chunk = self._make_chunk(root)
+            cache_dir = root / "cache"
+            client = self._client(cache_dir=cache_dir)
+            mock_post.return_value = _make_response(body={"markdown": "# 标题"})
+
+            client.parse_chunk(chunk)
+
+            cached_files = list(cache_dir.iterdir())
+            self.assertEqual(len(cached_files), 1)
+            self.assertIn("# 标题", cached_files[0].read_text(encoding="utf-8"))
+
+    @patch("src.document_restoration.vl_client.requests.post")
+    def test_parse_chunk_skips_api_when_cache_hit(self, mock_post):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            chunk = self._make_chunk(root)
+            cache_dir = root / "cache"
+            client = self._client(cache_dir=cache_dir)
+            key = client._cache_key(chunk)
+            client._write_cache(key, "# 来自缓存")
+
+            markdown = client.parse_chunk(chunk)
+
+            self.assertEqual(markdown, "# 来自缓存")
+            mock_post.assert_not_called()
+
+    @patch("src.document_restoration.vl_client.requests.post")
+    def test_parse_chunk_sends_multipart_fields(self, mock_post):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            chunk = self._make_chunk(root, file_name="report.png")
+            client = self._client(cache_dir=None)
+            mock_post.return_value = _make_response(body={"markdown": "# ok"})
+
+            client.parse_chunk(chunk)
+
+            mock_post.assert_called_once()
+            _, kwargs = mock_post.call_args
+            self.assertEqual(kwargs["data"]["userId"], "finixA1001")
+            self.assertEqual(kwargs["data"]["apiKey"], "key")
+            self.assertEqual(kwargs["data"]["fileName"], "report.png")
+            self.assertEqual(kwargs["timeout"], 30)
+            self.assertIn("file", kwargs["files"])
+
+    @patch("src.document_restoration.vl_client.requests.post")
+    def test_parse_chunk_retries_on_transient_failure(self, mock_post):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            chunk = self._make_chunk(root)
+            client = self._client(cache_dir=None)
+            mock_post.side_effect = [
+                requests_lib.exceptions.Timeout("timeout 1"),
+                _make_response(body={"markdown": "# retry succeeded"}),
+            ]
+
+            markdown = client.parse_chunk(chunk)
+
+            self.assertEqual(markdown, "# retry succeeded")
+            self.assertEqual(mock_post.call_count, 2)
+
+    @patch("src.document_restoration.vl_client.requests.post")
+    def test_parse_chunk_raises_when_all_attempts_fail(self, mock_post):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            chunk = self._make_chunk(root)
+            client = self._client(cache_dir=None)
+            mock_post.side_effect = requests_lib.exceptions.Timeout("always times out")
+
+            with self.assertRaisesRegex(RuntimeError, "failed after 3 attempts"):
+                client.parse_chunk(chunk)
+            self.assertEqual(mock_post.call_count, 3)
+
+    @patch("src.document_restoration.vl_client.requests.post")
+    def test_parse_chunk_retries_on_non_2xx(self, mock_post):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            chunk = self._make_chunk(root)
+            client = self._client(cache_dir=None)
+            mock_post.return_value = MagicMock(
+                status_code=500, headers={}, text="server error"
+            )
+
+            with self.assertRaisesRegex(RuntimeError, "failed after 3 attempts"):
+                client.parse_chunk(chunk)
+            self.assertEqual(mock_post.call_count, 3)
 
 
 if __name__ == "__main__":

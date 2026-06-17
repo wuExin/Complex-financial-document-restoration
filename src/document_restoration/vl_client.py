@@ -157,6 +157,50 @@ class FinixDocVLClient:
         (self.cache_dir / key).write_text(markdown, encoding="utf-8")
 
     def parse_chunk(self, chunk: ImageChunk) -> str:
-        raise NotImplementedError(
-            "FinixDocVLClient.parse_chunk will be implemented in a later task."
-        )
+        if self.cache_dir is not None:
+            key = self._cache_key(chunk)
+            cached = self._read_cache(key)
+            if cached is not None:
+                LOGGER.info("Cache hit for %s", chunk.source.file_name)
+                return cached
+
+        markdown = self._call_api(chunk)
+
+        if self.cache_dir is not None:
+            self._write_cache(self._cache_key(chunk), markdown)
+        return markdown
+
+    def _call_api(self, chunk: ImageChunk) -> str:
+        total_attempts = self.max_retries + 1
+        last_error: Exception | None = None
+        for attempt in range(total_attempts):
+            try:
+                with chunk.source.path.open("rb") as file_obj:
+                    response = requests.post(
+                        self.endpoint,
+                        data={
+                            "userId": self.user_id,
+                            "apiKey": self.api_key,
+                            "fileName": chunk.source.file_name,
+                        },
+                        files={"file": (chunk.source.file_name, file_obj)},
+                        timeout=self.timeout,
+                    )
+                if not 200 <= response.status_code < 300:
+                    raise RuntimeError(
+                        f"FinixDoc-VL API returned status {response.status_code}"
+                    )
+                return self._parse_response(response)
+            except Exception as exc:
+                last_error = exc
+                LOGGER.warning(
+                    "FinixDoc-VL attempt %s/%s failed for %s: %s",
+                    attempt + 1,
+                    total_attempts,
+                    chunk.source.file_name,
+                    exc,
+                )
+
+        raise RuntimeError(
+            f"FinixDoc-VL API failed after {total_attempts} attempts for {chunk.source.file_name}"
+        ) from last_error
