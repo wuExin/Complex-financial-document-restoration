@@ -3,3 +3,8 @@
 __pycache__/
 outputs/
 .cache/
+
+# Competition datasets and local run artifacts
+AFAC */
+data/
+finix_ab_A_submit_mock.csv
