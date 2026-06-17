@@ -1,7 +1,25 @@
+import hashlib
+import logging
 from pathlib import Path
 from typing import Protocol
 
+import requests
+
 from .models import ImageChunk
+
+
+LOGGER = logging.getLogger(__name__)
+
+
+ALLOWED_USER_IDS = frozenset(
+    {"finixA1001", "finixB2002", "finixC3003", "finixD4004", "finixE5005"}
+)
+DEFAULT_USER_ID = "finixB2002"
+DEFAULT_API_KEY = "F935A5503983FB19F26FA3F00A94EBF9"
+DEFAULT_ENDPOINT = "https://finixdocapi.alipay.com/api/finix_doc/call_with_file"
+DEFAULT_TIMEOUT = 180
+DEFAULT_MAX_RETRIES = 2
+DEFAULT_CACHE_DIR = Path(".cache/finixdoc_vl")
 
 
 class VLClient(Protocol):
@@ -36,7 +54,36 @@ class MockVLClient:
 
 
 class FinixDocVLClient:
+    def __init__(
+        self,
+        user_id: str,
+        api_key: str,
+        endpoint: str,
+        timeout: float,
+        max_retries: int,
+        cache_dir: Path | None,
+    ) -> None:
+        if user_id not in ALLOWED_USER_IDS:
+            raise ValueError(
+                f"userId '{user_id}' is not in the official whitelist: {sorted(ALLOWED_USER_IDS)}"
+            )
+        if not api_key:
+            raise ValueError("apiKey must not be empty.")
+        if not endpoint:
+            raise ValueError("endpoint must not be empty.")
+        if timeout <= 0:
+            raise ValueError(f"timeout must be positive, got {timeout}.")
+        if max_retries < 0:
+            raise ValueError(f"max_retries must be non-negative, got {max_retries}.")
+
+        self.user_id = user_id
+        self.api_key = api_key
+        self.endpoint = endpoint
+        self.timeout = timeout
+        self.max_retries = max_retries
+        self.cache_dir = cache_dir.expanduser().resolve() if cache_dir else None
+
     def parse_chunk(self, chunk: ImageChunk) -> str:
         raise NotImplementedError(
-            "FinixDoc-VL API details are not available yet. Use --client mock."
+            "FinixDocVLClient.parse_chunk will be implemented in a later task."
         )

@@ -12,7 +12,7 @@ from src.document_restoration.image_loader import load_images
 from src.document_restoration.merge import merge_chunk_markdown
 from src.document_restoration.models import DocumentResult, ImageRecord
 from src.document_restoration.pipeline import run_pipeline
-from src.document_restoration.vl_client import FinixDocVLClient, MockVLClient
+from src.document_restoration.vl_client import MockVLClient
 
 
 class FailingOneImageClient:
@@ -75,13 +75,6 @@ class MockVLClientTests(unittest.TestCase):
 
         self.assertEqual(markdown, "# missing.jpg\n\nMock parse result for missing.jpg.")
 
-    def test_finixdoc_client_is_explicitly_not_implemented(self):
-        image = ImageRecord(file_name="doc.jpg", path=Path("doc.jpg").resolve())
-        chunk = create_chunks(image)[0]
-
-        with self.assertRaises(NotImplementedError):
-            FinixDocVLClient().parse_chunk(chunk)
-
 
 class MergeTests(unittest.TestCase):
     def test_merge_chunk_markdown_orders_by_chunk_id_and_skips_empty_text(self):
@@ -117,13 +110,6 @@ class ExporterTests(unittest.TestCase):
 
 
 class PipelineTests(unittest.TestCase):
-    def test_create_finixdoc_client_fails_before_processing(self):
-        with self.assertRaisesRegex(
-            NotImplementedError,
-            "FinixDoc-VL API details are not available yet. Use --client mock.",
-        ):
-            create_client("finixdoc", None)
-
     def test_run_pipeline_uses_mock_gt_and_writes_csv(self):
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
