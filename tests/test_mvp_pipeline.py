@@ -5,7 +5,6 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from main import create_client
 from src.document_restoration.chunker import create_chunks
 from src.document_restoration.exporter import write_submission_csv
 from src.document_restoration.image_loader import load_images
