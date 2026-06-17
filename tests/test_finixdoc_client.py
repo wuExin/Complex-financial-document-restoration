@@ -1,4 +1,8 @@
+import argparse
+import csv
 import json
+import subprocess
+import sys
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -7,8 +11,10 @@ from unittest.mock import MagicMock, patch
 
 import requests as requests_lib
 
+from main import create_client
 from src.document_restoration.chunker import create_chunks
 from src.document_restoration.models import ImageRecord
+from src.document_restoration.pipeline import run_pipeline
 from src.document_restoration.vl_client import (
     ALLOWED_USER_IDS,
     DEFAULT_API_KEY,
@@ -18,6 +24,7 @@ from src.document_restoration.vl_client import (
     DEFAULT_TIMEOUT,
     DEFAULT_USER_ID,
     FinixDocVLClient,
+    MockVLClient,
 )
 
 
@@ -405,6 +412,136 @@ class FinixDocParseChunkTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "failed after 3 attempts"):
                 client.parse_chunk(chunk)
             self.assertEqual(mock_post.call_count, 3)
+
+
+def _build_args(**overrides: Any) -> argparse.Namespace:
+    defaults: dict[str, Any] = {
+        "client": "mock",
+        "gt_dir": None,
+        "user_id": DEFAULT_USER_ID,
+        "api_key": DEFAULT_API_KEY,
+        "endpoint": DEFAULT_ENDPOINT,
+        "timeout": DEFAULT_TIMEOUT,
+        "max_retries": DEFAULT_MAX_RETRIES,
+        "cache_dir": "none",
+        "input_dir": "ignored",
+        "output": "ignored",
+        "log_level": "INFO",
+    }
+    defaults.update(overrides)
+    return argparse.Namespace(**defaults)
+
+
+class CreateClientTests(unittest.TestCase):
+    def test_returns_mock_for_mock_choice(self):
+        client = create_client(_build_args(client="mock"))
+
+        self.assertIsInstance(client, MockVLClient)
+
+    def test_returns_finixdoc_for_finixdoc_choice(self):
+        client = create_client(_build_args(client="finixdoc", cache_dir="none"))
+
+        self.assertIsInstance(client, FinixDocVLClient)
+        self.assertIsNone(client.cache_dir)
+
+    def test_converts_cache_dir_path_when_provided(self):
+        with TemporaryDirectory() as tmp:
+            client = create_client(_build_args(client="finixdoc", cache_dir=tmp))
+
+            self.assertEqual(client.cache_dir, Path(tmp).resolve())
+
+    def test_passes_user_id_and_endpoint_to_client(self):
+        client = create_client(
+            _build_args(
+                client="finixdoc",
+                user_id="finixC3003",
+                endpoint="https://custom.invalid/api",
+                cache_dir="none",
+            )
+        )
+
+        self.assertEqual(client.user_id, "finixC3003")
+        self.assertEqual(client.endpoint, "https://custom.invalid/api")
+
+
+class FinixDocPipelineIntegrationTests(unittest.TestCase):
+    @patch("src.document_restoration.vl_client.requests.post")
+    def test_run_pipeline_with_finixdoc_client_writes_csv(self, mock_post):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            images = root / "images"
+            images.mkdir()
+            (images / "doc.jpg").write_bytes(b"fake-image")
+            output = root / "submission.csv"
+            mock_post.return_value = _make_response(body={"markdown": "# 真实解析"})
+
+            client = FinixDocVLClient(
+                user_id="finixA1001",
+                api_key="key",
+                endpoint="https://example.invalid/api",
+                timeout=10,
+                max_retries=0,
+                cache_dir=None,
+            )
+            results = run_pipeline(images, output, client)
+
+            self.assertEqual(len(results), 1)
+            self.assertEqual(results[0].markdown, "# 真实解析")
+            with output.open("r", encoding="utf-8", newline="") as f:
+                rows = list(csv.DictReader(f))
+            self.assertEqual(rows[0]["ground_truth"], "# 真实解析")
+
+    def test_main_cli_runs_with_finixdoc_client_via_cache(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            images = root / "images"
+            images.mkdir()
+            image_path = images / "doc.jpg"
+            image_path.write_bytes(b"fake-image")
+            output = root / "submission.csv"
+            cache_dir = root / "cache"
+            cache_dir.mkdir()
+
+            seed_client = FinixDocVLClient(
+                user_id="finixA1001",
+                api_key="key",
+                endpoint="https://example.invalid/api",
+                timeout=10,
+                max_retries=0,
+                cache_dir=cache_dir,
+            )
+            chunk = create_chunks(ImageRecord(file_name="doc.jpg", path=image_path))[0]
+            seed_client._write_cache(seed_client._cache_key(chunk), "# 来自缓存")
+
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    "main.py",
+                    "--input_dir",
+                    str(images),
+                    "--output",
+                    str(output),
+                    "--client",
+                    "finixdoc",
+                    "--user_id",
+                    "finixA1001",
+                    "--api_key",
+                    "key",
+                    "--endpoint",
+                    "https://example.invalid/api",
+                    "--cache_dir",
+                    str(cache_dir),
+                ],
+                cwd=Path.cwd(),
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            with output.open("r", encoding="utf-8", newline="") as f:
+                rows = list(csv.DictReader(f))
+            self.assertEqual(rows[0]["ground_truth"], "# 来自缓存")
 
 
 if __name__ == "__main__":
