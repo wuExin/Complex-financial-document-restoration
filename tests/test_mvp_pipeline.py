@@ -146,12 +146,25 @@ class ExporterTests(unittest.TestCase):
 
 
 class PipelineTests(unittest.TestCase):
-    def test_create_finixdoc_client_fails_before_processing(self):
-        with self.assertRaisesRegex(
-            NotImplementedError,
-            "FinixDoc-VL API details are not available yet. Use --client mock.",
-        ):
-            create_client("finixdoc", None)
+    def test_create_finixdoc_client_uses_cli_options(self):
+        client = create_client(
+            "finixdoc",
+            None,
+            "finixD4004",
+            "cli-key",
+            "https://example.test/api",
+            30,
+            1,
+            ".cache/custom_finixdoc",
+        )
+
+        self.assertIsInstance(client, FinixDocVLClient)
+        self.assertEqual(client.user_id, "finixD4004")
+        self.assertEqual(client.api_key, "cli-key")
+        self.assertEqual(client.endpoint, "https://example.test/api")
+        self.assertEqual(client.timeout, 30.0)
+        self.assertEqual(client.max_retries, 1)
+        self.assertEqual(client.cache_dir, Path(".cache/custom_finixdoc"))
 
     def test_run_pipeline_uses_mock_gt_and_writes_csv(self):
         with TemporaryDirectory() as tmp:
@@ -219,6 +232,60 @@ class PipelineTests(unittest.TestCase):
 
             self.assertEqual(completed.returncode, 0, completed.stderr)
             self.assertTrue(output.exists())
+
+    def test_main_cli_accepts_finixdoc_options_without_calling_network(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            images = root / "images"
+            images.mkdir()
+            image_path = images / "doc.jpg"
+            image_path.write_bytes(b"fake")
+            output = root / "submission.csv"
+            cache_dir = root / "cache"
+            cached_client = FinixDocVLClient(
+                user_id="finixB2002",
+                api_key="cli-key",
+                endpoint="https://example.test/api",
+                timeout=5,
+                max_retries=0,
+                cache_dir=cache_dir,
+            )
+            chunk = create_chunks(ImageRecord(file_name="doc.jpg", path=image_path))[0]
+            cached_client._write_cache(chunk, "# Parsed by API")
+
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    "main.py",
+                    "--input_dir",
+                    str(images),
+                    "--output",
+                    str(output),
+                    "--client",
+                    "finixdoc",
+                    "--user_id",
+                    "finixB2002",
+                    "--api_key",
+                    "cli-key",
+                    "--endpoint",
+                    "https://example.test/api",
+                    "--timeout",
+                    "5",
+                    "--max_retries",
+                    "0",
+                    "--cache_dir",
+                    str(cache_dir),
+                ],
+                cwd=Path.cwd(),
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            with output.open("r", encoding="utf-8", newline="") as f:
+                rows = list(csv.DictReader(f))
+            self.assertEqual(rows[0]["ground_truth"], "# Parsed by API")
 
 
 class FakeResponse:
