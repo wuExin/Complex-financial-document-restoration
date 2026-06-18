@@ -3,6 +3,8 @@ import json
 from pathlib import Path
 from typing import Protocol
 
+import requests
+
 from .models import ImageChunk
 
 
@@ -81,9 +83,42 @@ class FinixDocVLClient:
         self.cache_dir = cache_dir
 
     def parse_chunk(self, chunk: ImageChunk) -> str:
-        raise NotImplementedError(
-            "FinixDoc-VL HTTP calling is implemented in the next task."
-        )
+        cached = self._read_cache(chunk)
+        if cached is not None:
+            return cached
+
+        markdown = self._request_markdown(chunk)
+        self._write_cache(chunk, markdown)
+        return markdown
+
+    def _request_markdown(self, chunk: ImageChunk) -> str:
+        last_error: Exception | None = None
+        attempts = self.max_retries + 1
+
+        for attempt in range(attempts):
+            try:
+                response = requests.post(
+                    self.endpoint,
+                    data={
+                        "userId": self.user_id,
+                        "apiKey": self.api_key,
+                        "fileName": chunk.source.file_name,
+                    },
+                    files={"file": (chunk.source.file_name, chunk.path.read_bytes())},
+                    timeout=self.timeout,
+                )
+                if response.status_code < 200 or response.status_code >= 300:
+                    summary = getattr(response, "text", "")[:200]
+                    raise RuntimeError(
+                        f"FinixDoc API returned HTTP {response.status_code}: {summary}"
+                    )
+                return self._extract_markdown(response)
+            except requests.RequestException as exc:
+                last_error = exc
+                if attempt == attempts - 1:
+                    break
+
+        raise RuntimeError(f"FinixDoc API request failed after {attempts} attempt(s)") from last_error
 
     def _extract_markdown(self, response: object) -> str:
         content_type = getattr(response, "headers", {}).get("Content-Type", "")

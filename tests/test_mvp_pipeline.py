@@ -1,9 +1,11 @@
 import csv
+import requests
 import subprocess
 import sys
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 from main import create_client
 from src.document_restoration.chunker import create_chunks
@@ -302,6 +304,89 @@ class FinixDocResponseAndCacheTests(unittest.TestCase):
             self.assertEqual(client._read_cache(chunk), "# Cached")
             cache_files = list(cache_dir.glob("*.md"))
             self.assertEqual(len(cache_files), 1)
+
+
+class FinixDocHttpTests(unittest.TestCase):
+    def test_parse_chunk_builds_multipart_request_fields(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            image_path = root / "doc.jpg"
+            image_path.write_bytes(b"image-bytes")
+            chunk = create_chunks(ImageRecord(file_name="doc.jpg", path=image_path))[0]
+            client = FinixDocVLClient(
+                user_id="finixC3003",
+                api_key="secret",
+                endpoint="https://example.test/api",
+                timeout=12,
+                max_retries=0,
+                cache_dir=None,
+            )
+
+            with patch("src.document_restoration.vl_client.requests.post") as post:
+                post.return_value = FakeResponse(payload={"markdown": "# Parsed"})
+
+                markdown = client.parse_chunk(chunk)
+
+            self.assertEqual(markdown, "# Parsed")
+            self.assertEqual(post.call_count, 1)
+            _, kwargs = post.call_args
+            self.assertEqual(kwargs["data"], {
+                "userId": "finixC3003",
+                "apiKey": "secret",
+                "fileName": "doc.jpg",
+            })
+            self.assertEqual(kwargs["timeout"], 12.0)
+            self.assertEqual(kwargs["files"]["file"][0], "doc.jpg")
+            self.assertEqual(kwargs["files"]["file"][1], b"image-bytes")
+
+    def test_parse_chunk_raises_clear_error_for_non_2xx_response(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            image_path = root / "doc.jpg"
+            image_path.write_bytes(b"image")
+            chunk = create_chunks(ImageRecord(file_name="doc.jpg", path=image_path))[0]
+            client = FinixDocVLClient(max_retries=0, cache_dir=None)
+
+            with patch("src.document_restoration.vl_client.requests.post") as post:
+                post.return_value = FakeResponse(status_code=500, text="server error", content_type="text/plain")
+
+                with self.assertRaisesRegex(RuntimeError, "FinixDoc API returned HTTP 500"):
+                    client.parse_chunk(chunk)
+
+    def test_parse_chunk_retries_transient_request_errors(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            image_path = root / "doc.jpg"
+            image_path.write_bytes(b"image")
+            chunk = create_chunks(ImageRecord(file_name="doc.jpg", path=image_path))[0]
+            client = FinixDocVLClient(max_retries=1, cache_dir=None)
+
+            with patch("src.document_restoration.vl_client.requests.post") as post:
+                post.side_effect = [
+                    requests.Timeout("slow"),
+                    FakeResponse(payload={"markdown": "# Retry success"}),
+                ]
+
+                markdown = client.parse_chunk(chunk)
+
+            self.assertEqual(markdown, "# Retry success")
+            self.assertEqual(post.call_count, 2)
+
+    def test_parse_chunk_uses_cache_without_network_call(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cache_dir = root / "cache"
+            image_path = root / "doc.jpg"
+            image_path.write_bytes(b"image")
+            chunk = create_chunks(ImageRecord(file_name="doc.jpg", path=image_path))[0]
+            client = FinixDocVLClient(cache_dir=cache_dir)
+            client._write_cache(chunk, "# Cached")
+
+            with patch("src.document_restoration.vl_client.requests.post") as post:
+                markdown = client.parse_chunk(chunk)
+
+            self.assertEqual(markdown, "# Cached")
+            post.assert_not_called()
 
 
 if __name__ == "__main__":
