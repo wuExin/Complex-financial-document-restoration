@@ -2,3 +2,4 @@
 .sdd/
 __pycache__/
 outputs/
+.cache/

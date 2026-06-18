@@ -75,12 +75,39 @@ class MockVLClientTests(unittest.TestCase):
 
         self.assertEqual(markdown, "# missing.jpg\n\nMock parse result for missing.jpg.")
 
-    def test_finixdoc_client_is_explicitly_not_implemented(self):
-        image = ImageRecord(file_name="doc.jpg", path=Path("doc.jpg").resolve())
-        chunk = create_chunks(image)[0]
+class FinixDocConfigTests(unittest.TestCase):
+    def test_finixdoc_client_defaults_to_official_configuration(self):
+        client = FinixDocVLClient()
 
-        with self.assertRaises(NotImplementedError):
-            FinixDocVLClient().parse_chunk(chunk)
+        self.assertEqual(client.user_id, "finixB2002")
+        self.assertEqual(
+            client.endpoint,
+            "https://finixdocapi.alipay.com/api/finix_doc/call_with_file",
+        )
+        self.assertEqual(client.api_key, "F935A5503983FB19F26FA3F00A94EBF9")
+        self.assertEqual(client.timeout, 180.0)
+        self.assertEqual(client.max_retries, 2)
+        self.assertEqual(client.cache_dir, Path(".cache/finixdoc_vl"))
+
+    def test_finixdoc_client_rejects_non_whitelisted_user_id(self):
+        with self.assertRaisesRegex(ValueError, "Unsupported FinixDoc userId"):
+            FinixDocVLClient(user_id="not-whitelisted")
+
+    def test_finixdoc_client_rejects_empty_api_key(self):
+        with self.assertRaisesRegex(ValueError, "apiKey must not be empty"):
+            FinixDocVLClient(api_key=" ")
+
+    def test_finixdoc_client_rejects_empty_endpoint(self):
+        with self.assertRaisesRegex(ValueError, "endpoint must not be empty"):
+            FinixDocVLClient(endpoint="")
+
+    def test_finixdoc_client_rejects_non_positive_timeout(self):
+        with self.assertRaisesRegex(ValueError, "timeout must be greater than 0"):
+            FinixDocVLClient(timeout=0)
+
+    def test_finixdoc_client_rejects_negative_max_retries(self):
+        with self.assertRaisesRegex(ValueError, "max_retries must be greater than or equal to 0"):
+            FinixDocVLClient(max_retries=-1)
 
 
 class MergeTests(unittest.TestCase):
