@@ -205,6 +205,30 @@ class PipelineTests(unittest.TestCase):
             self.assertEqual(rows[0]["ground_truth"], "")
             self.assertEqual(rows[1]["ground_truth"], "# Parsed good.jpg")
 
+    def test_pipeline_continues_when_finixdoc_single_image_call_fails(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            images = root / "images"
+            images.mkdir()
+            (images / "bad.jpg").write_bytes(b"bad")
+            (images / "good.jpg").write_bytes(b"good")
+            output = root / "submission.csv"
+
+            client = FinixDocVLClient(cache_dir=None, max_retries=0)
+
+            with patch("src.document_restoration.vl_client.requests.post") as post:
+                post.side_effect = [
+                    FakeResponse(status_code=500, text="server error", content_type="text/plain"),
+                    FakeResponse(payload={"markdown": "# Good"}),
+                ]
+                with self.assertLogs("src.document_restoration.pipeline", level="ERROR") as logs:
+                    results = run_pipeline(images, output, client)
+
+            self.assertIn("Failed to process bad.jpg", "\n".join(logs.output))
+            self.assertEqual([r.file_name for r in results], ["bad.jpg", "good.jpg"])
+            self.assertEqual(results[0].markdown, "")
+            self.assertEqual(results[1].markdown, "# Good")
+
     def test_main_cli_runs_with_mock_client(self):
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
