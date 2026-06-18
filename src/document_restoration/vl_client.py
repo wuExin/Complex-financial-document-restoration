@@ -1,3 +1,5 @@
+import hashlib
+import json
 from pathlib import Path
 from typing import Protocol
 
@@ -82,3 +84,64 @@ class FinixDocVLClient:
         raise NotImplementedError(
             "FinixDoc-VL HTTP calling is implemented in the next task."
         )
+
+    def _extract_markdown(self, response: object) -> str:
+        content_type = getattr(response, "headers", {}).get("Content-Type", "")
+        if "json" not in content_type.lower():
+            return self._require_non_empty_markdown(getattr(response, "text", ""))
+
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            raise ValueError("FinixDoc response declared JSON but could not be decoded") from exc
+
+        markdown: object = None
+        if isinstance(payload, dict):
+            data = payload.get("data")
+            if isinstance(payload.get("markdown"), str):
+                markdown = payload["markdown"]
+            elif isinstance(data, dict) and isinstance(data.get("markdown"), str):
+                markdown = data["markdown"]
+            elif isinstance(payload.get("result"), str):
+                markdown = payload["result"]
+            elif isinstance(data, str):
+                markdown = data
+
+        if not isinstance(markdown, str):
+            raise ValueError("FinixDoc response did not contain Markdown")
+        return self._require_non_empty_markdown(markdown)
+
+    def _require_non_empty_markdown(self, markdown: str) -> str:
+        normalized = markdown.strip()
+        if not normalized:
+            raise ValueError("FinixDoc response did not contain Markdown")
+        return normalized
+
+    def _cache_path(self, chunk: ImageChunk) -> Path | None:
+        if self.cache_dir is None:
+            return None
+
+        image_hash = hashlib.sha256(chunk.path.read_bytes()).hexdigest()
+        cache_key = {
+            "client": "finixdoc",
+            "endpoint": self.endpoint,
+            "file_name": chunk.source.file_name,
+            "image_sha256": image_hash,
+            "user_id": self.user_id,
+        }
+        encoded = json.dumps(cache_key, sort_keys=True, ensure_ascii=True).encode("utf-8")
+        digest = hashlib.sha256(encoded).hexdigest()
+        return self.cache_dir / f"{digest}.md"
+
+    def _read_cache(self, chunk: ImageChunk) -> str | None:
+        cache_path = self._cache_path(chunk)
+        if cache_path is None or not cache_path.exists():
+            return None
+        return cache_path.read_text(encoding="utf-8")
+
+    def _write_cache(self, chunk: ImageChunk, markdown: str) -> None:
+        cache_path = self._cache_path(chunk)
+        if cache_path is None:
+            return
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        cache_path.write_text(markdown, encoding="utf-8")

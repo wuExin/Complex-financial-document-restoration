@@ -219,5 +219,90 @@ class PipelineTests(unittest.TestCase):
             self.assertTrue(output.exists())
 
 
+class FakeResponse:
+    def __init__(self, status_code=200, text="", payload=None, content_type="application/json"):
+        self.status_code = status_code
+        self.text = text
+        self._payload = payload
+        self.headers = {"Content-Type": content_type}
+
+    def json(self):
+        if isinstance(self._payload, Exception):
+            raise self._payload
+        return self._payload
+
+
+class FinixDocResponseAndCacheTests(unittest.TestCase):
+    def test_extract_markdown_prefers_top_level_markdown(self):
+        client = FinixDocVLClient()
+        response = FakeResponse(payload={"markdown": "# Parsed"})
+
+        self.assertEqual(client._extract_markdown(response), "# Parsed")
+
+    def test_extract_markdown_reads_nested_data_markdown(self):
+        client = FinixDocVLClient()
+        response = FakeResponse(payload={"data": {"markdown": "# Nested"}})
+
+        self.assertEqual(client._extract_markdown(response), "# Nested")
+
+    def test_extract_markdown_reads_result_string(self):
+        client = FinixDocVLClient()
+        response = FakeResponse(payload={"result": "# Result"})
+
+        self.assertEqual(client._extract_markdown(response), "# Result")
+
+    def test_extract_markdown_reads_data_string(self):
+        client = FinixDocVLClient()
+        response = FakeResponse(payload={"data": "# Data"})
+
+        self.assertEqual(client._extract_markdown(response), "# Data")
+
+    def test_extract_markdown_uses_text_response_for_non_json(self):
+        client = FinixDocVLClient()
+        response = FakeResponse(text="# Plain text", payload=None, content_type="text/plain")
+
+        self.assertEqual(client._extract_markdown(response), "# Plain text")
+
+    def test_extract_markdown_rejects_empty_result(self):
+        client = FinixDocVLClient()
+        response = FakeResponse(payload={"markdown": "   "})
+
+        with self.assertRaisesRegex(ValueError, "FinixDoc response did not contain Markdown"):
+            client._extract_markdown(response)
+
+    def test_cache_path_changes_when_file_content_changes(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cache_dir = root / "cache"
+            image_path = root / "doc.jpg"
+            image_path.write_bytes(b"first")
+            client = FinixDocVLClient(cache_dir=cache_dir)
+            chunk = create_chunks(ImageRecord(file_name="doc.jpg", path=image_path))[0]
+
+            first_cache_path = client._cache_path(chunk)
+            image_path.write_bytes(b"second")
+            second_cache_path = client._cache_path(chunk)
+
+            self.assertIsNotNone(first_cache_path)
+            self.assertIsNotNone(second_cache_path)
+            self.assertNotEqual(first_cache_path, second_cache_path)
+
+    def test_cache_round_trip_stores_markdown_text(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cache_dir = root / "cache"
+            image_path = root / "doc.jpg"
+            image_path.write_bytes(b"image")
+            client = FinixDocVLClient(cache_dir=cache_dir)
+            chunk = create_chunks(ImageRecord(file_name="doc.jpg", path=image_path))[0]
+
+            self.assertIsNone(client._read_cache(chunk))
+            client._write_cache(chunk, "# Cached")
+
+            self.assertEqual(client._read_cache(chunk), "# Cached")
+            cache_files = list(cache_dir.glob("*.md"))
+            self.assertEqual(len(cache_files), 1)
+
+
 if __name__ == "__main__":
     unittest.main()
