@@ -79,19 +79,19 @@ def _materialize_chunks(
     config: ChunkerConfig,
 ) -> list[ImageChunk]:
     cache_dir = config.chunk_cache_dir
+    if cache_dir is None:
+        raise ChunkerError(
+            f"Cannot split {image.file_name}: chunk_cache_dir is None "
+            "(strips require a chunk cache directory)"
+        )
     stem = image.path.stem
     chunks: list[ImageChunk] = []
     with Image.open(image.path) as pil_image:
         for idx, (y0, y1) in enumerate(cut_points):
             nn = f"{idx + 1:02d}"
             file_name = f"{stem}_p{nn}.jpg"
-            if cache_dir is not None:
-                path = cache_dir / file_name
-            else:
-                # No cache dir -> fall back to source path (single-chunk semantics)
-                # Should not happen for strips, but stay safe.
-                path = image.path
-            if cache_dir is not None and not chunk_storage.file_exists(path):
+            path = cache_dir / file_name
+            if not chunk_storage.file_exists(path):
                 cropped = pil_image.crop((0, y0, width, y1))
                 chunk_storage.write_jpeg(path, cropped)
             chunks.append(
@@ -181,4 +181,4 @@ def _fixed_height_cuts(height: int, expected_page_h: int) -> list[tuple[int, int
 
 
 class ChunkerError(RuntimeError):
-    pass
+    """Raised when the chunker cannot read an image or materialize chunks."""

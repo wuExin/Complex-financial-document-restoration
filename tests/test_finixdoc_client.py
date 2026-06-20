@@ -13,12 +13,6 @@ import requests as requests_lib
 from PIL import Image
 
 from main import create_client
-
-
-def _write_tiny_jpeg(path: Path) -> None:
-    """Write a 16x16 grey JPEG. Phase 3 chunker reads the image header to
-    gate on aspect ratio, so test fixtures can no longer use raw fake bytes."""
-    Image.new("RGB", (16, 16), color=(128, 128, 128)).save(path, format="JPEG")
 from src.document_restoration.chunker import create_chunks
 from src.document_restoration.models import ImageRecord
 from src.document_restoration.pipeline import run_pipeline
@@ -33,6 +27,7 @@ from src.document_restoration.vl_client import (
     FinixDocVLClient,
     MockVLClient,
 )
+from tests._fixtures import write_tiny_jpeg
 
 
 class FinixDocClientConstructionTests(unittest.TestCase):
@@ -303,7 +298,7 @@ class FinixDocCacheTests(unittest.TestCase):
 class FinixDocParseChunkTests(unittest.TestCase):
     def _make_chunk(self, root: Path, file_name: str = "doc.jpg") -> object:
         path = root / file_name
-        _write_tiny_jpeg(path)
+        write_tiny_jpeg(path)
         image = ImageRecord(file_name=file_name, path=path)
         return create_chunks(image)[0]
 
@@ -482,7 +477,7 @@ class FinixDocPipelineIntegrationTests(unittest.TestCase):
             root = Path(tmp)
             images = root / "images"
             images.mkdir()
-            _write_tiny_jpeg(images / "doc.jpg")
+            write_tiny_jpeg(images / "doc.jpg")
             output = root / "submission.csv"
             mock_post.return_value = _make_response(body={"markdown": "# 真实解析"})
 
@@ -508,7 +503,7 @@ class FinixDocPipelineIntegrationTests(unittest.TestCase):
             images = root / "images"
             images.mkdir()
             image_path = images / "doc.jpg"
-            _write_tiny_jpeg(image_path)
+            write_tiny_jpeg(image_path)
             output = root / "submission.csv"
             cache_dir = root / "cache"
             cache_dir.mkdir()

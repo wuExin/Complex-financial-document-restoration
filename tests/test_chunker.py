@@ -1,5 +1,4 @@
 import unittest
-from dataclasses import dataclass
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -7,6 +6,7 @@ from PIL import Image, ImageDraw
 
 from src.document_restoration.chunker import (
     ChunkerConfig,
+    ChunkerError,
     _detect_cut_points,
     create_chunks,
 )
@@ -178,6 +178,17 @@ class CreateChunksIntegrationTests(unittest.TestCase):
                 "truncated",
                 "\n".join(logs.output).lower(),
             )
+
+    def test_strip_with_no_cache_dir_raises_chunker_error(self):
+        with TemporaryDirectory() as tmp:
+            strip = _make_strip(400, page_height=600, num_pages=2, gap_height=200)
+            record = self._save_image_record(tmp, "tall.jpg", strip)
+            config = ChunkerConfig(chunk_cache_dir=None)
+
+            with self.assertRaises(ChunkerError) as ctx:
+                create_chunks(record, config)
+
+            self.assertIn("chunk_cache_dir", str(ctx.exception))
 
 
 if __name__ == "__main__":

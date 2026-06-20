@@ -5,8 +5,6 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from PIL import Image
-
 from src.document_restoration.chunker import create_chunks
 from src.document_restoration.exporter import write_submission_csv
 from src.document_restoration.image_loader import load_images
@@ -14,12 +12,7 @@ from src.document_restoration.merge import merge_chunk_markdown
 from src.document_restoration.models import DocumentResult, ImageRecord
 from src.document_restoration.pipeline import run_pipeline
 from src.document_restoration.vl_client import MockVLClient
-
-
-def _write_tiny_jpeg(path: Path) -> None:
-    """Write a 16x16 grey JPEG. Phase 3 chunker reads the image header to
-    gate on aspect ratio, so test fixtures can no longer use raw fake bytes."""
-    Image.new("RGB", (16, 16), color=(128, 128, 128)).save(path, format="JPEG")
+from tests._fixtures import write_tiny_jpeg
 
 
 class FailingOneImageClient:
@@ -51,7 +44,7 @@ class ChunkerTests(unittest.TestCase):
     def test_create_chunks_returns_one_chunk_for_mvp(self):
         with TemporaryDirectory() as tmp:
             path = Path(tmp) / "doc.jpg"
-            _write_tiny_jpeg(path)
+            write_tiny_jpeg(path)
             image = ImageRecord(file_name="doc.jpg", path=path)
 
             chunks = create_chunks(image)
@@ -64,7 +57,7 @@ class ChunkerTests(unittest.TestCase):
     def test_create_chunks_sets_file_name_equal_to_source_for_mvp(self):
         with TemporaryDirectory() as tmp:
             path = Path(tmp) / "doc.jpg"
-            _write_tiny_jpeg(path)
+            write_tiny_jpeg(path)
             image = ImageRecord(file_name="doc.jpg", path=path)
 
             chunks = create_chunks(image)
@@ -79,7 +72,7 @@ class MockVLClientTests(unittest.TestCase):
             gt_dir = root / "mds"
             gt_dir.mkdir()
             image_path = root / "abc.jpg"
-            _write_tiny_jpeg(image_path)
+            write_tiny_jpeg(image_path)
             (gt_dir / "abc.md").write_text("# 标题\n\n正文", encoding="utf-8")
             chunk = create_chunks(ImageRecord(file_name="abc.jpg", path=image_path))[0]
 
@@ -90,7 +83,7 @@ class MockVLClientTests(unittest.TestCase):
     def test_mock_client_returns_deterministic_fallback_without_gt(self):
         with TemporaryDirectory() as tmp:
             path = Path(tmp) / "missing.jpg"
-            _write_tiny_jpeg(path)
+            write_tiny_jpeg(path)
             image = ImageRecord(file_name="missing.jpg", path=path)
             chunk = create_chunks(image)[0]
 
@@ -103,7 +96,7 @@ class MergeTests(unittest.TestCase):
     def test_merge_chunk_markdown_orders_by_chunk_id_and_skips_empty_text(self):
         with TemporaryDirectory() as tmp:
             path = Path(tmp) / "doc.jpg"
-            _write_tiny_jpeg(path)
+            write_tiny_jpeg(path)
             image = ImageRecord(file_name="doc.jpg", path=path)
             chunk_2 = create_chunks(image)[0]
             chunk_1 = create_chunks(image)[0]
@@ -143,7 +136,7 @@ class PipelineTests(unittest.TestCase):
             mds = root / "mds"
             images.mkdir()
             mds.mkdir()
-            _write_tiny_jpeg(images / "doc.jpg")
+            write_tiny_jpeg(images / "doc.jpg")
             (mds / "doc.md").write_text("# 文档\n\n正文", encoding="utf-8")
             output = root / "submission.csv"
 
@@ -159,8 +152,8 @@ class PipelineTests(unittest.TestCase):
             root = Path(tmp)
             images = root / "images"
             images.mkdir()
-            _write_tiny_jpeg(images / "bad.jpg")
-            _write_tiny_jpeg(images / "good.jpg")
+            write_tiny_jpeg(images / "bad.jpg")
+            write_tiny_jpeg(images / "good.jpg")
             output = root / "submission.csv"
 
             with self.assertLogs("src.document_restoration.pipeline", level="ERROR") as logs:
@@ -180,7 +173,7 @@ class PipelineTests(unittest.TestCase):
             root = Path(tmp)
             images = root / "images"
             images.mkdir()
-            _write_tiny_jpeg(images / "doc.jpg")
+            write_tiny_jpeg(images / "doc.jpg")
             output = root / "submission.csv"
 
             completed = subprocess.run(
