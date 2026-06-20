@@ -1,5 +1,6 @@
 import hashlib
 import logging
+import time
 from pathlib import Path
 from typing import Protocol
 
@@ -20,6 +21,7 @@ DEFAULT_ENDPOINT = "https://finixdocapi.alipay.com/api/finix_doc/call_with_file"
 DEFAULT_TIMEOUT = 180
 DEFAULT_MAX_RETRIES = 2
 DEFAULT_CACHE_DIR = Path(".cache/finixdoc_vl")
+DEFAULT_MIN_REQUEST_INTERVAL = 0.0
 
 
 class VLClient(Protocol):
@@ -62,6 +64,7 @@ class FinixDocVLClient:
         timeout: float,
         max_retries: int,
         cache_dir: Path | None,
+        min_request_interval: float = DEFAULT_MIN_REQUEST_INTERVAL,
     ) -> None:
         if user_id not in ALLOWED_USER_IDS:
             raise ValueError(
@@ -75,6 +78,10 @@ class FinixDocVLClient:
             raise ValueError(f"timeout must be positive, got {timeout}.")
         if max_retries < 0:
             raise ValueError(f"max_retries must be non-negative, got {max_retries}.")
+        if min_request_interval < 0:
+            raise ValueError(
+                f"min_request_interval must be non-negative, got {min_request_interval}."
+            )
 
         self.user_id = user_id
         self.api_key = api_key
@@ -82,6 +89,7 @@ class FinixDocVLClient:
         self.timeout = timeout
         self.max_retries = max_retries
         self.cache_dir = cache_dir.expanduser().resolve() if cache_dir else None
+        self.min_request_interval = min_request_interval
 
     def _parse_response(self, response: requests.Response) -> str:
         content_type = response.headers.get("Content-Type", "")
@@ -135,8 +143,8 @@ class FinixDocVLClient:
 
     def _cache_key(self, chunk: ImageChunk) -> str:
         hasher = hashlib.sha256()
-        hasher.update(chunk.source.path.read_bytes())
-        hasher.update(chunk.source.file_name.encode("utf-8"))
+        hasher.update(chunk.path.read_bytes())
+        hasher.update(chunk.file_name.encode("utf-8"))
         hasher.update(b"finixdoc")
         hasher.update(self.endpoint.encode("utf-8"))
         hasher.update(self.user_id.encode("utf-8"))
@@ -175,15 +183,17 @@ class FinixDocVLClient:
         last_error: Exception | None = None
         for attempt in range(total_attempts):
             try:
-                with chunk.source.path.open("rb") as file_obj:
+                if self.min_request_interval > 0:
+                    time.sleep(self.min_request_interval)
+                with chunk.path.open("rb") as file_obj:
                     response = requests.post(
                         self.endpoint,
                         data={
                             "userId": self.user_id,
                             "apiKey": self.api_key,
-                            "fileName": chunk.source.file_name,
+                            "fileName": chunk.file_name,
                         },
-                        files={"file": (chunk.source.file_name, file_obj)},
+                        files={"file": (chunk.file_name, file_obj)},
                         timeout=self.timeout,
                     )
                 if not 200 <= response.status_code < 300:
@@ -197,10 +207,10 @@ class FinixDocVLClient:
                     "FinixDoc-VL attempt %s/%s failed for %s: %s",
                     attempt + 1,
                     total_attempts,
-                    chunk.source.file_name,
+                    chunk.file_name,
                     exc,
                 )
 
         raise RuntimeError(
-            f"FinixDoc-VL API failed after {total_attempts} attempts for {chunk.source.file_name}"
+            f"FinixDoc-VL API failed after {total_attempts} attempts for {chunk.file_name}"
         ) from last_error

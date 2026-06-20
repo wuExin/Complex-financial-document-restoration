@@ -1,13 +1,15 @@
 import argparse
 import csv
+import dataclasses
 import json
 import subprocess
 import sys
+import time
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import requests as requests_lib
 from PIL import Image
@@ -548,6 +550,109 @@ class FinixDocPipelineIntegrationTests(unittest.TestCase):
             with output.open("r", encoding="utf-8", newline="") as f:
                 rows = list(csv.DictReader(f))
             self.assertEqual(rows[0]["ground_truth"], "# 来自缓存")
+
+
+class FinixDocChunkPathTests(unittest.TestCase):
+    def _build_client(self, **overrides):
+        kwargs = dict(
+            user_id="finixB2002",
+            api_key="key",
+            endpoint="https://example.invalid/api",
+            timeout=10,
+            max_retries=0,
+            cache_dir=None,
+        )
+        kwargs.update(overrides)
+        return FinixDocVLClient(**kwargs)
+
+    @patch("src.document_restoration.vl_client.requests.post")
+    def test_call_api_uses_chunk_path_not_source_path(self, mock_post):
+        captured: dict[str, Any] = {}
+
+        def _capture(*args, **kwargs):
+            file_obj = kwargs["files"]["file"][1]
+            captured["bytes"] = file_obj.read()
+            return _make_response(200, "markdown body", "text/plain")
+
+        mock_post.side_effect = _capture
+        with TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            chunk_path = tmp_path / "doc_p01.jpg"
+            chunk_path.write_bytes(b"chunk-bytes")
+            source_path = tmp_path / "doc.jpg"
+            # create_chunks reads the image header with PIL, so the source must
+            # be a real JPEG. The chunk file deliberately holds raw bytes so we
+            # can assert _call_api streams chunk.path (not source.path).
+            from tests._fixtures import write_tiny_jpeg
+            write_tiny_jpeg(source_path)
+
+            from src.document_restoration.chunker import create_chunks
+            from src.document_restoration.models import ImageRecord
+            record = ImageRecord(file_name="doc.jpg", path=source_path)
+            chunk = dataclasses.replace(
+                create_chunks(record)[0],
+                path=chunk_path,
+                file_name="doc_p01.jpg",
+            )
+
+            client = self._build_client(cache_dir=None)
+            client.parse_chunk(chunk)
+
+        sent_files = mock_post.call_args.kwargs["files"]
+        sent_data = mock_post.call_args.kwargs["data"]
+        self.assertEqual(sent_data["fileName"], "doc_p01.jpg")
+        self.assertEqual(sent_files["file"][0], "doc_p01.jpg")
+        # The file_obj is closed by the time _call_api returns, so we capture
+        # its bytes inside the mocked post via side_effect while still open.
+        self.assertEqual(captured["bytes"], b"chunk-bytes")
+
+    def test_cache_key_differs_for_chunks_of_same_source(self):
+        with TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            source_path = tmp_path / "doc.jpg"
+            from tests._fixtures import write_tiny_jpeg
+            write_tiny_jpeg(source_path)
+            from src.document_restoration.chunker import create_chunks
+            from src.document_restoration.models import ImageRecord
+            record = ImageRecord(file_name="doc.jpg", path=source_path)
+            base_chunk = create_chunks(record)[0]
+            chunk_a = dataclasses.replace(
+                base_chunk,
+                path=tmp_path / "doc_p01.jpg",
+                file_name="doc_p01.jpg",
+            )
+            chunk_a.path.write_bytes(b"chunk-a-bytes")
+            chunk_b = dataclasses.replace(
+                base_chunk,
+                path=tmp_path / "doc_p02.jpg",
+                file_name="doc_p02.jpg",
+            )
+            chunk_b.path.write_bytes(b"chunk-b-bytes")
+
+            client = self._build_client(cache_dir=None)
+            key_a = client._cache_key(chunk_a)
+            key_b = client._cache_key(chunk_b)
+
+            self.assertNotEqual(key_a, key_b)
+
+    @patch("src.document_restoration.vl_client.time.sleep")
+    @patch("src.document_restoration.vl_client.requests.post")
+    def test_min_request_interval_sleeps_before_each_request(self, mock_post, mock_sleep):
+        mock_post.return_value = _make_response(200, "ok", "text/plain")
+        with TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            source_path = tmp_path / "doc.jpg"
+            # Use write_tiny_jpeg so create_chunks can read the header
+            from tests._fixtures import write_tiny_jpeg
+            write_tiny_jpeg(source_path)
+            from src.document_restoration.chunker import create_chunks
+            from src.document_restoration.models import ImageRecord
+            chunk = create_chunks(ImageRecord(file_name="doc.jpg", path=source_path))[0]
+
+            client = self._build_client(min_request_interval=2.5)
+            client.parse_chunk(chunk)
+
+        mock_sleep.assert_called_once_with(2.5)
 
 
 if __name__ == "__main__":
