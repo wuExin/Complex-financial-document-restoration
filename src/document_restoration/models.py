@@ -13,6 +13,7 @@ class ImageChunk:
     source: ImageRecord
     chunk_id: int
     path: Path
+    file_name: str
     x: int | None = None
     y: int | None = None
     width: int | None = None

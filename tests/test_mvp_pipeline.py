@@ -50,6 +50,13 @@ class ChunkerTests(unittest.TestCase):
         self.assertEqual(chunks[0].source, image)
         self.assertEqual(chunks[0].path, image.path)
 
+    def test_create_chunks_sets_file_name_equal_to_source_for_mvp(self):
+        image = ImageRecord(file_name="doc.jpg", path=Path("doc.jpg").resolve())
+
+        chunks = create_chunks(image)
+
+        self.assertEqual(chunks[0].file_name, "doc.jpg")
+
 
 class MockVLClientTests(unittest.TestCase):
     def test_mock_client_reads_matching_markdown_from_gt_dir(self):
