@@ -5,7 +5,11 @@ from tempfile import TemporaryDirectory
 
 from PIL import Image, ImageDraw
 
-from src.document_restoration.chunker import ChunkerConfig, _detect_cut_points
+from src.document_restoration.chunker import (
+    ChunkerConfig,
+    _detect_cut_points,
+    create_chunks,
+)
 from src.document_restoration.models import ImageRecord
 
 
@@ -82,6 +86,98 @@ class DetectCutPointsTests(unittest.TestCase):
         cuts = _detect_cut_points(img, config)
 
         self.assertEqual(cuts, [(0, img.size[1])])
+
+
+class CreateChunksIntegrationTests(unittest.TestCase):
+    def _save_image_record(self, tmp: str, name: str, img: Image.Image) -> ImageRecord:
+        path = Path(tmp) / name
+        img.save(path, format="JPEG")
+        return ImageRecord(file_name=name, path=path)
+
+    def test_short_image_returns_single_chunk_pointing_at_source(self):
+        with TemporaryDirectory() as tmp:
+            img = Image.new("RGB", (400, 300), color=(50, 50, 50))
+            record = self._save_image_record(tmp, "page.jpg", img)
+            config = ChunkerConfig()
+
+            chunks = create_chunks(record, config)
+
+            self.assertEqual(len(chunks), 1)
+            self.assertEqual(chunks[0].path, record.path)
+            self.assertEqual(chunks[0].file_name, "page.jpg")
+            self.assertIsNone(chunks[0].width)
+
+    def test_tall_image_splits_and_writes_chunk_files(self):
+        with TemporaryDirectory() as tmp:
+            cache_dir = Path(tmp) / "chunks"
+            # NOTE: gap_height=200 (not the plan's 120). At width=400 the
+            # downscaled band is only ~60 rows, below MIN_BAND_RATIO's
+            # min_band_downscaled=85 threshold, so the band filter rejects
+            # the gaps and the algorithm falls back to fixed-height cuts
+            # (yielding 4 chunks instead of 3). gap_height=200 keeps the
+            # downscaled band at ~100 rows and yields the expected 3 chunks.
+            strip = _make_strip(400, page_height=600, num_pages=3, gap_height=200)
+            record = self._save_image_record(tmp, "tall.jpg", strip)
+            config = ChunkerConfig(chunk_cache_dir=cache_dir)
+
+            chunks = create_chunks(record, config)
+
+            self.assertEqual(len(chunks), 3)
+            for idx, chunk in enumerate(chunks):
+                self.assertEqual(chunk.chunk_id, idx)
+                self.assertEqual(chunk.source, record)
+                self.assertTrue(chunk.path.exists(), f"chunk file missing: {chunk.path}")
+                self.assertTrue(chunk.path.name.startswith("tall_p"))
+                self.assertTrue(chunk.path.name.endswith(".jpg"))
+                self.assertIsNotNone(chunk.x)
+                self.assertIsNotNone(chunk.y)
+                self.assertIsNotNone(chunk.width)
+                self.assertIsNotNone(chunk.height)
+                with Image.open(chunk.path) as im:
+                    self.assertEqual(im.size, (chunk.width, chunk.height))
+
+    def test_reuses_cached_chunks_without_rewriting(self):
+        with TemporaryDirectory() as tmp:
+            cache_dir = Path(tmp) / "chunks"
+            # gap_height=200 for the same reason as test_tall_image (see above).
+            strip = _make_strip(400, page_height=600, num_pages=2, gap_height=200)
+            record = self._save_image_record(tmp, "tall.jpg", strip)
+            config = ChunkerConfig(chunk_cache_dir=cache_dir)
+
+            first_chunks = create_chunks(record, config)
+            # Tamper with mtime to detect rewrite
+            import os
+            for path in [c.path for c in first_chunks]:
+                os.utime(path, (1_000_000_000, 1_000_000_000))
+
+            second_chunks = create_chunks(record, config)
+
+            self.assertEqual(
+                [c.path for c in first_chunks], [c.path for c in second_chunks]
+            )
+            for path in [c.path for c in first_chunks]:
+                self.assertEqual(path.stat().st_mtime, 1_000_000_000,
+                                 "cache file was rewritten on second run")
+
+    def test_max_chunks_cap_logs_warning_and_truncates(self):
+        with TemporaryDirectory() as tmp:
+            cache_dir = Path(tmp) / "chunks"
+            # JPEG's maximum supported dimension is 65500 px, so we cannot use
+            # the plan's 100_000-tall fixture directly. height=30_000 with
+            # width=200 -> expected_page_h=283, step=255 -> 118 fixed-height
+            # chunks (well above MAX_CHUNKS_PER_IMAGE=100).
+            strip = _make_uniform_strip(200, height=30_000)
+            record = self._save_image_record(tmp, "huge.jpg", strip)
+            config = ChunkerConfig(chunk_cache_dir=cache_dir)
+
+            with self.assertLogs("src.document_restoration.chunker", level="WARNING") as logs:
+                chunks = create_chunks(record, config)
+
+            self.assertEqual(len(chunks), 100)
+            self.assertIn(
+                "truncated",
+                "\n".join(logs.output).lower(),
+            )
 
 
 if __name__ == "__main__":

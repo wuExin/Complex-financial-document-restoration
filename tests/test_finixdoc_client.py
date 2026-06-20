@@ -10,8 +10,15 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import requests as requests_lib
+from PIL import Image
 
 from main import create_client
+
+
+def _write_tiny_jpeg(path: Path) -> None:
+    """Write a 16x16 grey JPEG. Phase 3 chunker reads the image header to
+    gate on aspect ratio, so test fixtures can no longer use raw fake bytes."""
+    Image.new("RGB", (16, 16), color=(128, 128, 128)).save(path, format="JPEG")
 from src.document_restoration.chunker import create_chunks
 from src.document_restoration.models import ImageRecord
 from src.document_restoration.pipeline import run_pipeline
@@ -212,7 +219,11 @@ class FinixDocCacheTests(unittest.TestCase):
         file_name: str = "doc.jpg",
     ) -> object:
         path = root / file_name
-        path.write_bytes(content)
+        # Phase 3 chunker reads the image header, so write a real JPEG.
+        # Vary the pixel color by `content` hash so cache-key tests still
+        # exercise distinct file contents.
+        hue = sum(content) % 256
+        Image.new("RGB", (16, 16), color=(hue, hue, hue)).save(path, format="JPEG")
         image = ImageRecord(file_name=file_name, path=path)
         return create_chunks(image)[0]
 
@@ -292,7 +303,7 @@ class FinixDocCacheTests(unittest.TestCase):
 class FinixDocParseChunkTests(unittest.TestCase):
     def _make_chunk(self, root: Path, file_name: str = "doc.jpg") -> object:
         path = root / file_name
-        path.write_bytes(b"image-bytes")
+        _write_tiny_jpeg(path)
         image = ImageRecord(file_name=file_name, path=path)
         return create_chunks(image)[0]
 
@@ -471,7 +482,7 @@ class FinixDocPipelineIntegrationTests(unittest.TestCase):
             root = Path(tmp)
             images = root / "images"
             images.mkdir()
-            (images / "doc.jpg").write_bytes(b"fake-image")
+            _write_tiny_jpeg(images / "doc.jpg")
             output = root / "submission.csv"
             mock_post.return_value = _make_response(body={"markdown": "# 真实解析"})
 
@@ -497,7 +508,7 @@ class FinixDocPipelineIntegrationTests(unittest.TestCase):
             images = root / "images"
             images.mkdir()
             image_path = images / "doc.jpg"
-            image_path.write_bytes(b"fake-image")
+            _write_tiny_jpeg(image_path)
             output = root / "submission.csv"
             cache_dir = root / "cache"
             cache_dir.mkdir()

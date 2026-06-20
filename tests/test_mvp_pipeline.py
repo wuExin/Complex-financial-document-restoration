@@ -5,6 +5,8 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+from PIL import Image
+
 from src.document_restoration.chunker import create_chunks
 from src.document_restoration.exporter import write_submission_csv
 from src.document_restoration.image_loader import load_images
@@ -12,6 +14,12 @@ from src.document_restoration.merge import merge_chunk_markdown
 from src.document_restoration.models import DocumentResult, ImageRecord
 from src.document_restoration.pipeline import run_pipeline
 from src.document_restoration.vl_client import MockVLClient
+
+
+def _write_tiny_jpeg(path: Path) -> None:
+    """Write a 16x16 grey JPEG. Phase 3 chunker reads the image header to
+    gate on aspect ratio, so test fixtures can no longer use raw fake bytes."""
+    Image.new("RGB", (16, 16), color=(128, 128, 128)).save(path, format="JPEG")
 
 
 class FailingOneImageClient:
@@ -41,21 +49,27 @@ class ImageLoaderTests(unittest.TestCase):
 
 class ChunkerTests(unittest.TestCase):
     def test_create_chunks_returns_one_chunk_for_mvp(self):
-        image = ImageRecord(file_name="doc.jpg", path=Path("doc.jpg").resolve())
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "doc.jpg"
+            _write_tiny_jpeg(path)
+            image = ImageRecord(file_name="doc.jpg", path=path)
 
-        chunks = create_chunks(image)
+            chunks = create_chunks(image)
 
-        self.assertEqual(len(chunks), 1)
-        self.assertEqual(chunks[0].chunk_id, 0)
-        self.assertEqual(chunks[0].source, image)
-        self.assertEqual(chunks[0].path, image.path)
+            self.assertEqual(len(chunks), 1)
+            self.assertEqual(chunks[0].chunk_id, 0)
+            self.assertEqual(chunks[0].source, image)
+            self.assertEqual(chunks[0].path, image.path)
 
     def test_create_chunks_sets_file_name_equal_to_source_for_mvp(self):
-        image = ImageRecord(file_name="doc.jpg", path=Path("doc.jpg").resolve())
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "doc.jpg"
+            _write_tiny_jpeg(path)
+            image = ImageRecord(file_name="doc.jpg", path=path)
 
-        chunks = create_chunks(image)
+            chunks = create_chunks(image)
 
-        self.assertEqual(chunks[0].file_name, "doc.jpg")
+            self.assertEqual(chunks[0].file_name, "doc.jpg")
 
 
 class MockVLClientTests(unittest.TestCase):
@@ -65,7 +79,7 @@ class MockVLClientTests(unittest.TestCase):
             gt_dir = root / "mds"
             gt_dir.mkdir()
             image_path = root / "abc.jpg"
-            image_path.write_bytes(b"fake")
+            _write_tiny_jpeg(image_path)
             (gt_dir / "abc.md").write_text("# 标题\n\n正文", encoding="utf-8")
             chunk = create_chunks(ImageRecord(file_name="abc.jpg", path=image_path))[0]
 
@@ -74,25 +88,31 @@ class MockVLClientTests(unittest.TestCase):
             self.assertEqual(markdown, "# 标题\n\n正文")
 
     def test_mock_client_returns_deterministic_fallback_without_gt(self):
-        image = ImageRecord(file_name="missing.jpg", path=Path("missing.jpg").resolve())
-        chunk = create_chunks(image)[0]
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "missing.jpg"
+            _write_tiny_jpeg(path)
+            image = ImageRecord(file_name="missing.jpg", path=path)
+            chunk = create_chunks(image)[0]
 
-        markdown = MockVLClient().parse_chunk(chunk)
+            markdown = MockVLClient().parse_chunk(chunk)
 
-        self.assertEqual(markdown, "# missing.jpg\n\nMock parse result for missing.jpg.")
+            self.assertEqual(markdown, "# missing.jpg\n\nMock parse result for missing.jpg.")
 
 
 class MergeTests(unittest.TestCase):
     def test_merge_chunk_markdown_orders_by_chunk_id_and_skips_empty_text(self):
-        image = ImageRecord(file_name="doc.jpg", path=Path("doc.jpg").resolve())
-        chunk_2 = create_chunks(image)[0]
-        chunk_1 = create_chunks(image)[0]
-        object.__setattr__(chunk_2, "chunk_id", 2)
-        object.__setattr__(chunk_1, "chunk_id", 1)
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "doc.jpg"
+            _write_tiny_jpeg(path)
+            image = ImageRecord(file_name="doc.jpg", path=path)
+            chunk_2 = create_chunks(image)[0]
+            chunk_1 = create_chunks(image)[0]
+            object.__setattr__(chunk_2, "chunk_id", 2)
+            object.__setattr__(chunk_1, "chunk_id", 1)
 
-        markdown = merge_chunk_markdown([(chunk_2, "第二段"), (chunk_1, "第一段"), (chunk_1, "   ")])
+            markdown = merge_chunk_markdown([(chunk_2, "第二段"), (chunk_1, "第一段"), (chunk_1, "   ")])
 
-        self.assertEqual(markdown, "第一段\n\n第二段")
+            self.assertEqual(markdown, "第一段\n\n第二段")
 
 
 class ExporterTests(unittest.TestCase):
@@ -123,7 +143,7 @@ class PipelineTests(unittest.TestCase):
             mds = root / "mds"
             images.mkdir()
             mds.mkdir()
-            (images / "doc.jpg").write_bytes(b"fake")
+            _write_tiny_jpeg(images / "doc.jpg")
             (mds / "doc.md").write_text("# 文档\n\n正文", encoding="utf-8")
             output = root / "submission.csv"
 
@@ -139,8 +159,8 @@ class PipelineTests(unittest.TestCase):
             root = Path(tmp)
             images = root / "images"
             images.mkdir()
-            (images / "bad.jpg").write_bytes(b"fake")
-            (images / "good.jpg").write_bytes(b"fake")
+            _write_tiny_jpeg(images / "bad.jpg")
+            _write_tiny_jpeg(images / "good.jpg")
             output = root / "submission.csv"
 
             with self.assertLogs("src.document_restoration.pipeline", level="ERROR") as logs:
@@ -160,7 +180,7 @@ class PipelineTests(unittest.TestCase):
             root = Path(tmp)
             images = root / "images"
             images.mkdir()
-            (images / "doc.jpg").write_bytes(b"fake")
+            _write_tiny_jpeg(images / "doc.jpg")
             output = root / "submission.csv"
 
             completed = subprocess.run(
