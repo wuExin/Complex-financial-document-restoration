@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from src.document_restoration.chunker import create_chunks
+from src.document_restoration.chunker import ChunkerConfig, create_chunks
 from src.document_restoration.exporter import write_submission_csv
 from src.document_restoration.image_loader import load_images
 from src.document_restoration.merge import merge_chunk_markdown
@@ -146,6 +146,27 @@ class PipelineTests(unittest.TestCase):
             self.assertEqual(results[0].file_name, "doc.jpg")
             self.assertEqual(results[0].markdown, "# 文档\n\n正文")
             self.assertTrue(output.exists())
+
+    def test_run_pipeline_threads_chunker_config_to_create_chunks(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            images = root / "images"
+            images.mkdir()
+            # Image with aspect 1.0 — well below the configured threshold of 100,
+            # so it takes the MVP single-chunk path. Tiny JPEG so create_chunks can
+            # actually open the header.
+            write_tiny_jpeg(images / "doc.jpg")
+            output = root / "submission.csv"
+            config = ChunkerConfig(strip_aspect_threshold=100.0)
+
+            results = run_pipeline(
+                images, output, MockVLClient(), chunker_config=config
+            )
+
+            self.assertEqual(len(results), 1)
+            # MockVLClient returns "# doc.jpg\n\nMock parse result for doc.jpg."
+            # so markdown should be non-empty
+            self.assertEqual(results[0].markdown, "# doc.jpg\n\nMock parse result for doc.jpg.")
 
     def test_run_pipeline_keeps_global_task_when_single_image_parse_fails(self):
         with TemporaryDirectory() as tmp:
