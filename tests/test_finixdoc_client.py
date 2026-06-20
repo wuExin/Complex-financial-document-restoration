@@ -432,6 +432,7 @@ def _build_args(**overrides: Any) -> argparse.Namespace:
         "timeout": DEFAULT_TIMEOUT,
         "max_retries": DEFAULT_MAX_RETRIES,
         "cache_dir": "none",
+        "min_request_interval": 0.0,
         "input_dir": "ignored",
         "output": "ignored",
         "log_level": "INFO",

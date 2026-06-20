@@ -253,6 +253,35 @@ class PipelineTests(unittest.TestCase):
             self.assertEqual(completed.returncode, 0, completed.stderr)
             self.assertTrue(output.exists())
 
+    def test_main_cli_passes_new_chunker_flags_and_runs(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            images = root / "images"
+            images.mkdir()
+            write_tiny_jpeg(images / "doc.jpg")
+            output = root / "submission.csv"
+
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    "main.py",
+                    "--input_dir", str(images),
+                    "--output", str(output),
+                    "--client", "mock",
+                    "--strip_aspect_threshold", "5.0",
+                    "--page_height_ratio", "1.414",
+                    "--chunk_cache_dir", str(root / "chunks"),
+                    "--min_request_interval", "0",
+                ],
+                cwd=Path.cwd(),
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            self.assertTrue(output.exists())
+
 
 if __name__ == "__main__":
     unittest.main()
