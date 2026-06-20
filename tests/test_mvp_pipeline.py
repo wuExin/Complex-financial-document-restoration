@@ -1,4 +1,5 @@
 import csv
+import dataclasses
 import subprocess
 import sys
 import unittest
@@ -90,6 +91,41 @@ class MockVLClientTests(unittest.TestCase):
             markdown = MockVLClient().parse_chunk(chunk)
 
             self.assertEqual(markdown, "# missing.jpg\n\nMock parse result for missing.jpg.")
+
+    def test_mock_client_prefers_chunk_specific_gt_over_source_gt(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            gt_dir = root / "mds"
+            gt_dir.mkdir()
+            image_path = root / "abc.jpg"
+            write_tiny_jpeg(image_path)
+            (gt_dir / "abc_p01.md").write_text("# Page 1", encoding="utf-8")
+            (gt_dir / "abc.md").write_text("# Whole doc", encoding="utf-8")
+            chunk = create_chunks(
+                ImageRecord(file_name="abc.jpg", path=image_path)
+            )[0]
+            chunk = dataclasses.replace(chunk, file_name="abc_p01.jpg")
+
+            markdown = MockVLClient(gt_dir=gt_dir).parse_chunk(chunk)
+
+            self.assertEqual(markdown, "# Page 1")
+
+    def test_mock_client_falls_back_to_source_stem_when_no_chunk_gt(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            gt_dir = root / "mds"
+            gt_dir.mkdir()
+            image_path = root / "abc.jpg"
+            write_tiny_jpeg(image_path)
+            (gt_dir / "abc.md").write_text("# Whole doc", encoding="utf-8")
+            chunk = create_chunks(
+                ImageRecord(file_name="abc.jpg", path=image_path)
+            )[0]
+            chunk = dataclasses.replace(chunk, file_name="abc_p01.jpg")
+
+            markdown = MockVLClient(gt_dir=gt_dir).parse_chunk(chunk)
+
+            self.assertEqual(markdown, "# Whole doc")
 
 
 class MergeTests(unittest.TestCase):

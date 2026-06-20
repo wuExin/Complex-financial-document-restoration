@@ -41,13 +41,16 @@ class MockVLClient:
         return f"# {chunk.source.file_name}\n\nMock parse result for {chunk.source.file_name}."
 
     def _find_ground_truth(self, chunk: ImageChunk) -> Path | None:
-        stem = chunk.source.path.stem
+        chunk_stem = Path(chunk.file_name).stem
+        source_stem = chunk.source.path.stem
+
         candidates: list[Path] = []
         if self.gt_dir is not None:
-            candidates.append(self.gt_dir / f"{stem}.md")
-
+            candidates.append(self.gt_dir / f"{chunk_stem}.md")
+            candidates.append(self.gt_dir / f"{source_stem}.md")
         sibling_mds = chunk.source.path.parent.parent / "mds"
-        candidates.append(sibling_mds / f"{stem}.md")
+        candidates.append(sibling_mds / f"{chunk_stem}.md")
+        candidates.append(sibling_mds / f"{source_stem}.md")
 
         for candidate in candidates:
             if candidate.exists() and candidate.is_file():
