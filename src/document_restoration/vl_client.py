@@ -169,7 +169,7 @@ class FinixDocVLClient:
             key = self._cache_key(chunk)
             cached = self._read_cache(key)
             if cached is not None:
-                LOGGER.info("Cache hit for %s", chunk.source.file_name)
+                LOGGER.info("Cache hit for %s", chunk.file_name)
                 return cached
 
         markdown = self._call_api(chunk)

@@ -638,11 +638,17 @@ class FinixDocChunkPathTests(unittest.TestCase):
     @patch("src.document_restoration.vl_client.time.sleep")
     @patch("src.document_restoration.vl_client.requests.post")
     def test_min_request_interval_sleeps_before_each_request(self, mock_post, mock_sleep):
-        mock_post.return_value = _make_response(200, "ok", "text/plain")
+        # Use a side_effect on requests.post that asserts sleep has already fired
+        # by the time the request is made.
+        def _post_side_effect(*args, **kwargs):
+            mock_sleep.assert_called_with(2.5)
+            return _make_response(200, "ok", "text/plain")
+
+        mock_post.side_effect = _post_side_effect
+
         with TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             source_path = tmp_path / "doc.jpg"
-            # Use write_tiny_jpeg so create_chunks can read the header
             from tests._fixtures import write_tiny_jpeg
             write_tiny_jpeg(source_path)
             from src.document_restoration.chunker import create_chunks
@@ -652,6 +658,8 @@ class FinixDocChunkPathTests(unittest.TestCase):
             client = self._build_client(min_request_interval=2.5)
             client.parse_chunk(chunk)
 
+        # Final assertion: sleep happened exactly once with 2.5 (the side_effect's
+        # internal assertion already proved it fired BEFORE post).
         mock_sleep.assert_called_once_with(2.5)
 
 
