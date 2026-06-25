@@ -45,6 +45,17 @@ def get_manifest() -> tuple:
         )
 
 
+@app.route("/thumb/<subset>/<path:filename>")
+def get_thumb(subset: str, filename: str):
+    # Block path traversal
+    if "/" in filename or "\\" in filename or ".." in filename:
+        abort(404)
+    subset_dir = OUTPUTS_DIR / "thumbs" / subset
+    if not subset_dir.is_dir():
+        abort(404)
+    return send_from_directory(subset_dir, filename)
+
+
 def find_port(start: int = 5000, end: int = 5010) -> int:
     """Return the first available port in [start, end]."""
     for port in range(start, end + 1):
