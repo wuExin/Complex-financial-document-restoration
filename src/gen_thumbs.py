@@ -9,7 +9,7 @@ import argparse
 from pathlib import Path
 from typing import TypedDict
 
-from PIL import Image  # noqa: E402 - module-level import for clarity
+from PIL import Image
 
 
 class ImageInfo(TypedDict):
