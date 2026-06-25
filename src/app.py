@@ -56,6 +56,31 @@ def get_thumb(subset: str, filename: str):
     return send_from_directory(subset_dir, filename)
 
 
+def _find_image_path(subset: str, uuid: str) -> Path | None:
+    """Look up the original image file path for (subset, uuid) in the manifest."""
+    try:
+        manifest = _load_manifest()
+    except FileNotFoundError:
+        return None
+    subset_data = manifest.get("subsets", {}).get(subset)
+    if not subset_data:
+        return None
+    for img in subset_data.get("images", []):
+        if img["uuid"] == uuid:
+            return PROJECT_ROOT / img["image_path"]
+    return None
+
+
+@app.route("/image/<subset>/<uuid>")
+def get_image(subset: str, uuid: str):
+    if "/" in uuid or "\\" in uuid or ".." in uuid:
+        abort(404)
+    img_path = _find_image_path(subset, uuid)
+    if img_path is None or not img_path.is_file():
+        abort(404)
+    return send_from_directory(img_path.parent, img_path.name)
+
+
 def find_port(start: int = 5000, end: int = 5010) -> int:
     """Return the first available port in [start, end]."""
     for port in range(start, end + 1):

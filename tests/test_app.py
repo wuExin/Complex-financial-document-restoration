@@ -69,3 +69,14 @@ def test_get_thumb_404_when_missing(app_client) -> None:
 def test_get_thumb_404_on_unknown_subset(app_client) -> None:
     resp = app_client.get("/thumb/unknown_subset/anything.jpg")
     assert resp.status_code == 404
+
+
+def test_get_image_returns_jpeg(app_client) -> None:
+    resp = app_client.get("/image/train_long/aaaaaaaa-0000-0000-0000-000000000001")
+    assert resp.status_code == 200
+    assert resp.mimetype == "image/jpeg"
+
+
+def test_get_image_404_on_unknown_uuid(app_client) -> None:
+    resp = app_client.get("/image/train_long/not-a-real-uuid")
+    assert resp.status_code == 404
