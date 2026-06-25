@@ -6,16 +6,20 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json
+import sys
+from datetime import datetime
 from pathlib import Path
 from typing import TypedDict
 
 from PIL import Image
 
 
-class ImageInfo(TypedDict):
+class ImageInfo(TypedDict, total=False):
     uuid: str
     image_path: str  # path relative to project root
     size_bytes: int
+    thumb_path: str  # added by main() after thumbnail generation
 
 
 class SubsetInfo(TypedDict):
@@ -91,3 +95,62 @@ def generate_thumbnail(src: Path, dst: Path, long_edge: int = THUMBNAIL_LONG_EDG
     except Exception as exc:  # noqa: BLE001 - log and skip corrupt files
         print(f"[warn] skipped {src}: {exc}")
         return False
+
+
+def write_manifest(outputs_dir: Path, subsets: dict[str, SubsetInfo]) -> Path:
+    """Write the manifest JSON to outputs_dir/manifest.json and return its path."""
+    manifest = {
+        "version": 1,
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "subsets": subsets,
+    }
+    outputs_dir.mkdir(parents=True, exist_ok=True)
+    manifest_path = outputs_dir / "manifest.json"
+    manifest_path.write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    return manifest_path
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--data-dir",
+        type=Path,
+        default=Path(__file__).resolve().parent.parent / "data",
+        help="Path to the data/ directory (default: <project>/data)",
+    )
+    parser.add_argument(
+        "--outputs-dir",
+        type=Path,
+        default=Path(__file__).resolve().parent.parent / "outputs",
+        help="Path to the outputs/ directory (default: <project>/outputs)",
+    )
+    args = parser.parse_args()
+
+    if not args.data_dir.is_dir():
+        print(f"[error] data directory not found: {args.data_dir}", file=sys.stderr)
+        sys.exit(2)
+
+    subsets = discover_images(args.data_dir)
+    total = sum(s["count"] for s in subsets.values())
+    print(f"[info] discovered {total} images across {len(subsets)} subsets")
+
+    thumbs_root = args.outputs_dir / "thumbs"
+    for subset_key, subset in subsets.items():
+        for img in subset["images"]:
+            src = args.data_dir.parent / img["image_path"]
+            dst = thumbs_root / subset_key / f"{img['uuid']}.jpg"
+            generate_thumbnail(src, dst)
+
+    # Add thumb_path to each image record before writing manifest
+    for subset_key, subset in subsets.items():
+        for img in subset["images"]:
+            img["thumb_path"] = f"{subset_key}/{img['uuid']}.jpg"
+
+    manifest_path = write_manifest(args.outputs_dir, subsets)
+    print(f"[info] wrote manifest: {manifest_path}")
+
+
+if __name__ == "__main__":
+    main()

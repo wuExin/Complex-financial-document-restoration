@@ -72,3 +72,56 @@ def test_generate_thumbnail_handles_corrupt_image(tmp_path: Path) -> None:
 
     assert ok is False
     assert not dst.exists()
+
+
+def test_main_generates_thumbnails_and_manifest(
+    sample_data_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """End-to-end: running main() produces 4 thumbnails + manifest with 4 subsets."""
+    import json
+
+    import gen_thumbs
+
+    outputs_dir = tmp_path / "outputs"
+
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "gen_thumbs.py",
+            "--data-dir",
+            str(sample_data_dir),
+            "--outputs-dir",
+            str(outputs_dir),
+        ],
+    )
+    gen_thumbs.main()
+
+    manifest_path = outputs_dir / "manifest.json"
+    assert manifest_path.exists()
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest["version"] == 1
+    assert "generated_at" in manifest
+    assert set(manifest["subsets"].keys()) == {
+        "train_long",
+        "train_table",
+        "eval_long",
+        "eval_table",
+    }
+    for key, subset in manifest["subsets"].items():
+        assert subset["count"] == 1
+        assert len(subset["images"]) == 1
+        thumb_rel = subset["images"][0]["thumb_path"]
+        assert (outputs_dir / "thumbs" / thumb_rel).exists()
+
+
+def test_main_errors_when_data_dir_missing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import gen_thumbs
+
+    outputs_dir = tmp_path / "outputs"
+    monkeypatch.setattr(
+        "sys.argv",
+        ["gen_thumbs.py", "--data-dir", str(tmp_path / "does_not_exist"), "--outputs-dir", str(outputs_dir)],
+    )
+    with pytest.raises(SystemExit) as excinfo:
+        gen_thumbs.main()
+    assert excinfo.value.code != 0
