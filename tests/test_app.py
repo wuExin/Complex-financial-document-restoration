@@ -80,3 +80,15 @@ def test_get_image_returns_jpeg(app_client) -> None:
 def test_get_image_404_on_unknown_uuid(app_client) -> None:
     resp = app_client.get("/image/train_long/not-a-real-uuid")
     assert resp.status_code == 404
+
+
+def test_get_index_returns_html(app_client) -> None:
+    resp = app_client.get("/")
+    assert resp.status_code == 200
+    assert resp.mimetype == "text/html"
+    assert b'<div id="app">' in resp.data
+
+
+def test_get_static_asset(app_client) -> None:
+    resp = app_client.get("/static/app.js")
+    assert resp.status_code == 200

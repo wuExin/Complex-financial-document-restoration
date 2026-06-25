@@ -81,6 +81,16 @@ def get_image(subset: str, uuid: str):
     return send_from_directory(img_path.parent, img_path.name)
 
 
+@app.route("/")
+def get_index():
+    return send_from_directory(STATIC_DIR, "index.html")
+
+
+@app.route("/static/<path:filename>")
+def get_static(filename: str):
+    return send_from_directory(STATIC_DIR, filename)
+
+
 def find_port(start: int = 5000, end: int = 5010) -> int:
     """Return the first available port in [start, end]."""
     for port in range(start, end + 1):
