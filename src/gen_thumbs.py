@@ -14,6 +14,10 @@ from typing import TypedDict
 
 from PIL import Image
 
+# Real AFAC dataset images can be up to 400M pixels (large financial document scans).
+# Disable PIL's decompression bomb check — these are trusted local files.
+Image.MAX_IMAGE_PIXELS = None
+
 
 class ImageInfo(TypedDict, total=False):
     uuid: str
