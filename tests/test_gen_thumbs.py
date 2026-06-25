@@ -40,3 +40,35 @@ def test_discover_images_handles_missing_subset_dir(tmp_path: Path) -> None:
     result = discover_images(tmp_path / "empty_data")
     assert result["train_long"]["images"] == []
     assert result["train_long"]["count"] == 0
+
+
+def test_generate_thumbnail_creates_jpg(tmp_path: Path) -> None:
+    from PIL import Image
+
+    from gen_thumbs import generate_thumbnail
+
+    src = tmp_path / "src.jpg"
+    Image.new("RGB", (2000, 3000), (100, 150, 200)).save(src, "JPEG")
+    dst = tmp_path / "out.jpg"
+
+    ok = generate_thumbnail(src, dst)
+
+    assert ok is True
+    assert dst.exists()
+    with Image.open(dst) as thumb:
+        # Long edge should be capped near 240px
+        assert max(thumb.size) <= 240
+        assert thumb.size[0] == 160  # 2000/3000 * 240 = 160
+
+
+def test_generate_thumbnail_handles_corrupt_image(tmp_path: Path) -> None:
+    from gen_thumbs import generate_thumbnail
+
+    src = tmp_path / "broken.jpg"
+    src.write_bytes(b"not a real jpg")
+    dst = tmp_path / "out.jpg"
+
+    ok = generate_thumbnail(src, dst)
+
+    assert ok is False
+    assert not dst.exists()

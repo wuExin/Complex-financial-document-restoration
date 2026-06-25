@@ -9,6 +9,8 @@ import argparse
 from pathlib import Path
 from typing import TypedDict
 
+from PIL import Image  # noqa: E402 - module-level import for clarity
+
 
 class ImageInfo(TypedDict):
     uuid: str
@@ -66,3 +68,26 @@ def discover_images(data_root: Path) -> dict[str, SubsetInfo]:
                 )
         result[key] = {"label": meta["label"], "count": len(images), "images": images}
     return result
+
+
+THUMBNAIL_LONG_EDGE = 240
+
+
+def generate_thumbnail(src: Path, dst: Path, long_edge: int = THUMBNAIL_LONG_EDGE) -> bool:
+    """Generate a thumbnail at `dst` with the long edge capped at `long_edge` px.
+
+    Returns True on success, False if the source image cannot be decoded.
+    """
+    try:
+        with Image.open(src) as img:
+            img = img.convert("RGB")
+            w, h = img.size
+            scale = long_edge / max(w, h)
+            if scale < 1.0:
+                img = img.resize((max(1, int(w * scale)), max(1, int(h * scale))))
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            img.save(dst, "JPEG", quality=85)
+        return True
+    except Exception as exc:  # noqa: BLE001 - log and skip corrupt files
+        print(f"[warn] skipped {src}: {exc}")
+        return False
