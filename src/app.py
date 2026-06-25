@@ -1,0 +1,70 @@
+"""Flask server for the AFAC image browser.
+
+Usage:
+    python src/app.py [--port PORT]
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import socket
+import sys
+from pathlib import Path
+
+from flask import Flask, abort, jsonify, send_from_directory
+
+# Project root is parent of src/
+PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent
+OUTPUTS_DIR: Path = PROJECT_ROOT / "outputs"
+STATIC_DIR: Path = Path(__file__).resolve().parent / "static"
+
+app = Flask(__name__, static_folder=None)
+
+
+def _load_manifest() -> dict:
+    """Read and parse outputs/manifest.json, or raise FileNotFoundError."""
+    manifest_path = OUTPUTS_DIR / "manifest.json"
+    if not manifest_path.exists():
+        raise FileNotFoundError(manifest_path)
+    return json.loads(manifest_path.read_text(encoding="utf-8"))
+
+
+@app.route("/api/manifest")
+def get_manifest() -> tuple:
+    try:
+        return jsonify(_load_manifest())
+    except FileNotFoundError:
+        return (
+            jsonify(
+                {
+                    "error": "manifest not found",
+                    "hint": "run `python src/gen_thumbs.py` first",
+                }
+            ),
+            500,
+        )
+
+
+def find_port(start: int = 5000, end: int = 5010) -> int:
+    """Return the first available port in [start, end]."""
+    for port in range(start, end + 1):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            try:
+                s.bind(("127.0.0.1", port))
+                return port
+            except OSError:
+                continue
+    raise RuntimeError(f"no available port in [{start}, {end}]")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--port", type=int, default=None, help="Port (default: auto-pick 5000+)")
+    args = parser.parse_args()
+    port = args.port or find_port()
+    print(f"[info] serving on http://127.0.0.1:{port}")
+    app.run(host="127.0.0.1", port=port, debug=False)
+
+
+if __name__ == "__main__":
+    main()
