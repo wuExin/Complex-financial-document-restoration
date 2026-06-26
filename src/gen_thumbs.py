@@ -24,6 +24,7 @@ class ImageInfo(TypedDict, total=False):
     image_path: str  # path relative to project root
     size_bytes: int
     thumb_path: str  # added by main() after thumbnail generation
+    preview_path: str  # browser-safe downsampled preview, added by main()
 
 
 class SubsetInfo(TypedDict):
@@ -79,6 +80,7 @@ def discover_images(data_root: Path) -> dict[str, SubsetInfo]:
 
 
 THUMBNAIL_LONG_EDGE = 240
+PREVIEW_LONG_EDGE = 2000  # browser-safe preview (Chrome decodes <img> up to ~100M px)
 
 
 def generate_thumbnail(src: Path, dst: Path, long_edge: int = THUMBNAIL_LONG_EDGE) -> bool:
@@ -141,16 +143,24 @@ def main() -> None:
     print(f"[info] discovered {total} images across {len(subsets)} subsets")
 
     thumbs_root = args.outputs_dir / "thumbs"
+    previews_root = args.outputs_dir / "previews"
     for subset_key, subset in subsets.items():
         for img in subset["images"]:
             src = args.data_dir.parent / img["image_path"]
-            dst = thumbs_root / subset_key / f"{img['uuid']}.jpg"
-            generate_thumbnail(src, dst)
+            uuid = img["uuid"]
+            generate_thumbnail(src, thumbs_root / subset_key / f"{uuid}.jpg")
+            # Browser-safe preview: real AFAC scans reach 1500x92024 (138M px),
+            # which exceeds Chrome's <img> decode limit. Serve downsampled preview.
+            generate_thumbnail(
+                src, previews_root / subset_key / f"{uuid}.jpg", long_edge=PREVIEW_LONG_EDGE
+            )
 
-    # Add thumb_path to each image record before writing manifest
+    # Add thumb_path + preview_path to each image record before writing manifest
     for subset_key, subset in subsets.items():
         for img in subset["images"]:
-            img["thumb_path"] = f"{subset_key}/{img['uuid']}.jpg"
+            uuid = img["uuid"]
+            img["thumb_path"] = f"{subset_key}/{uuid}.jpg"
+            img["preview_path"] = f"{subset_key}/{uuid}.jpg"
 
     manifest_path = write_manifest(args.outputs_dir, subsets)
     print(f"[info] wrote manifest: {manifest_path}")

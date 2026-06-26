@@ -34,6 +34,7 @@ def sample_outputs_dir(tmp_path: Path) -> Path:
     """Build a temp outputs/ dir with manifest.json + 4 thumbnails (one per subset)."""
     outputs = tmp_path / "outputs"
     thumbs_root = outputs / "thumbs"
+    previews_root = outputs / "previews"
 
     subsets_data = {}
     for subset_key, label, uuid in [
@@ -44,6 +45,7 @@ def sample_outputs_dir(tmp_path: Path) -> Path:
     ]:
         thumb_rel = f"{subset_key}/{uuid}.jpg"
         _make_test_image(thumbs_root / thumb_rel, color=(150, 150, 200), size=(240, 320))
+        _make_test_image(previews_root / thumb_rel, color=(180, 180, 220), size=(1600, 2000))
         src_rel = f"data/some_dir/{uuid}.jpg"
         _make_test_image(tmp_path / src_rel)
         subsets_data[subset_key] = {
@@ -54,6 +56,7 @@ def sample_outputs_dir(tmp_path: Path) -> Path:
                     "uuid": uuid,
                     "image_path": src_rel.replace("/", "/"),
                     "thumb_path": thumb_rel,
+                    "preview_path": thumb_rel,
                     "size_bytes": (tmp_path / src_rel).stat().st_size,
                 }
             ],

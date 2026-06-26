@@ -57,7 +57,12 @@ def get_thumb(subset: str, filename: str):
 
 
 def _find_image_path(subset: str, uuid: str) -> Path | None:
-    """Look up the original image file path for (subset, uuid) in the manifest."""
+    """Look up the browser-safe preview path for (subset, uuid) in the manifest.
+
+    Serves the downsampled preview (long edge 2000px) rather than the original,
+    because real AFAC scans reach 138M+ pixels which exceeds the browser's
+    `<img>` decode limit and triggers onerror even on HTTP 200.
+    """
     try:
         manifest = _load_manifest()
     except FileNotFoundError:
@@ -67,7 +72,10 @@ def _find_image_path(subset: str, uuid: str) -> Path | None:
         return None
     for img in subset_data.get("images", []):
         if img["uuid"] == uuid:
-            return PROJECT_ROOT / img["image_path"]
+            preview_rel = img.get("preview_path")
+            if not preview_rel:
+                return None
+            return OUTPUTS_DIR / "previews" / preview_rel
     return None
 
 
