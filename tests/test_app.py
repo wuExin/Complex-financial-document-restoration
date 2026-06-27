@@ -92,3 +92,46 @@ def test_get_index_returns_html(app_client) -> None:
 def test_get_static_asset(app_client) -> None:
     resp = app_client.get("/static/app.js")
     assert resp.status_code == 200
+
+
+def test_open_returns_ok(app_client, monkeypatch: pytest.MonkeyPatch) -> None:
+    """POST /open for a valid uuid returns 200 and calls os.startfile."""
+    import app as app_module
+
+    calls = []
+    monkeypatch.setattr(
+        app_module, "_open_in_default_viewer", lambda p: calls.append(p)
+    )
+    resp = app_client.post("/open/train_long/aaaaaaaa-0000-0000-0000-000000000001")
+    assert resp.status_code == 200
+    assert resp.get_json() == {"ok": True}
+    assert len(calls) == 1
+    assert calls[0].name == "aaaaaaaa-0000-0000-0000-000000000001.jpg"
+
+
+def test_open_404_on_unknown_uuid(app_client, monkeypatch: pytest.MonkeyPatch) -> None:
+    import app as app_module
+
+    monkeypatch.setattr(app_module, "_open_in_default_viewer", lambda p: None)
+    resp = app_client.post("/open/train_long/not-a-real-uuid")
+    assert resp.status_code == 404
+
+
+def test_open_404_on_unknown_subset(app_client, monkeypatch: pytest.MonkeyPatch) -> None:
+    import app as app_module
+
+    monkeypatch.setattr(app_module, "_open_in_default_viewer", lambda p: None)
+    resp = app_client.post("/open/unknown_subset/aaaaaaaa-0000-0000-0000-000000000001")
+    assert resp.status_code == 404
+
+
+def test_open_500_when_startfile_raises(app_client, monkeypatch: pytest.MonkeyPatch) -> None:
+    import app as app_module
+
+    def raise_oserror(path):
+        raise OSError("simulated failure")
+
+    monkeypatch.setattr(app_module, "_open_in_default_viewer", raise_oserror)
+    resp = app_client.post("/open/train_long/aaaaaaaa-0000-0000-0000-000000000001")
+    assert resp.status_code == 500
+    assert "error" in resp.get_json()

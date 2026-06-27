@@ -7,7 +7,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import socket
+import subprocess
 import sys
 from pathlib import Path
 
@@ -54,6 +56,52 @@ def get_thumb(subset: str, filename: str):
     if not subset_dir.is_dir():
         abort(404)
     return send_from_directory(subset_dir, filename)
+
+
+def _open_in_default_viewer(path: Path) -> None:
+    """Launch the OS default image viewer on `path`.
+
+    os.startfile (Windows) returns immediately. Popen (macOS/Linux) is
+    non-blocking. Either way the HTTP response stays fast.
+    """
+    if sys.platform == "win32":
+        os.startfile(str(path))  # type: ignore[attr-defined]
+    elif sys.platform == "darwin":
+        subprocess.Popen(["open", str(path)])
+    else:
+        subprocess.Popen(["xdg-open", str(path)])
+
+
+def _find_original_path(subset: str, uuid: str) -> Path | None:
+    """Look up the original image path for (subset, uuid) in the manifest."""
+    try:
+        manifest = _load_manifest()
+    except FileNotFoundError:
+        return None
+    subset_data = manifest.get("subsets", {}).get(subset)
+    if not subset_data:
+        return None
+    for img in subset_data.get("images", []):
+        if img["uuid"] == uuid:
+            rel = img.get("image_path")
+            if not rel:
+                return None
+            return PROJECT_ROOT / rel
+    return None
+
+
+@app.route("/open/<subset>/<uuid>", methods=["POST"])
+def open_image(subset: str, uuid: str):
+    if "/" in uuid or "\\" in uuid or ".." in uuid:
+        abort(404)
+    img_path = _find_original_path(subset, uuid)
+    if img_path is None or not img_path.is_file():
+        abort(404)
+    try:
+        _open_in_default_viewer(img_path)
+    except OSError as exc:
+        return jsonify({"error": str(exc)}), 500
+    return jsonify({"ok": True})
 
 
 def _find_image_path(subset: str, uuid: str) -> Path | None:
