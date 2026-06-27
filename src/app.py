@@ -13,7 +13,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from flask import Flask, abort, jsonify, send_from_directory
+from flask import Flask, abort, jsonify, request, send_from_directory
 
 # Project root is parent of src/
 PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent
@@ -139,3 +139,104 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+
+# ===== Restore Pipeline API Routes =====
+# 这两个路由把流水线暴露给浏览器，便于交互式调参。
+# Phase 1 只返回 JSON；前端可视化推迟到后续 phase。
+
+import json as _json
+from pathlib import Path as _Path
+from typing import Any as _Any
+
+from src.restore.config import Config as _RestoreConfig
+from src.restore.pipeline import process_image as _process_image
+
+
+def _resolve_image_path(image_id: str) -> _Path | None:
+    """根据 image_id（UUID 或 filename stem）在 data/ 下找原图。"""
+    data_root = _Path(__file__).resolve().parent.parent / "data"
+    for pattern in (f"**/images/{image_id}.jpg", f"**/images/{image_id}.png"):
+        matches = list(data_root.glob(pattern))
+        if matches:
+            return matches[0]
+    return None
+
+
+def _eval_dir() -> _Path:
+    """返回 outputs/eval/ 目录。"""
+    return _RestoreConfig.from_env().eval_dir
+
+
+@app.route("/api/restore", methods=["POST"])
+def api_restore() -> _Any:
+    """跑单图流水线，返回 PipelineResult JSON。"""
+    payload = request.get_json(silent=True) or {}
+    image_id = payload.get("image_id")
+    if not image_id:
+        return jsonify({"error": "image_id required"}), 400
+
+    img_path = _resolve_image_path(image_id)
+    if img_path is None:
+        return jsonify({"error": f"image not found: {image_id}"}), 404
+
+    from PIL import Image as _PILImage
+
+    try:
+        img = _PILImage.open(img_path)
+        img.load()
+    except Exception as e:  # noqa: BLE001
+        return jsonify({"error": f"failed to open image: {e}"}), 500
+
+    # 构造默认 client（HTTPFinixClient）；可选注入真值
+    cfg = _RestoreConfig.from_env(load_dotenv=True)
+    from src.restore.chunking import FixedHeightChunker as _FHC
+    from src.restore.dedup import EditDistanceMerger as _EDM
+    from src.restore.finix_client import HTTPFinixClient as _HTTP
+
+    client = _HTTP(
+        user_id=cfg.finix_user_id,
+        api_key=cfg.finix_api_key,
+        cache_dir=cfg.cache_dir,
+        max_concurrency=cfg.concurrency,
+    )
+
+    # 训练集：尝试加载 ground truth
+    gt_path = img_path.parent.parent / "mds" / f"{image_id}.md"
+    ground_truth = None
+    if gt_path.exists():
+        ground_truth = gt_path.read_text(encoding="utf-8")
+
+    result = _process_image(
+        image=img,
+        image_id=image_id,
+        client=client,
+        chunker=_FHC(
+            threshold=cfg.chunk_threshold,
+            chunk_height=cfg.chunk_height,
+            overlap=cfg.chunk_overlap,
+        ),
+        merger=_EDM(),
+        ground_truth=ground_truth,
+    )
+    return jsonify(result.to_dict())
+
+
+@app.route("/api/eval", methods=["GET"])
+def api_eval_list() -> _Any:
+    """列出 outputs/eval/ 下所有评测报告。"""
+    eval_d = _eval_dir()
+    if not eval_d.exists():
+        return jsonify({"reports": []})
+    reports = []
+    for sub in sorted(eval_d.iterdir(), reverse=True):
+        if not sub.is_dir():
+            continue
+        summary_file = sub / "summary.txt"
+        summary = (
+            summary_file.read_text(encoding="utf-8").strip()
+            if summary_file.exists()
+            else ""
+        )
+        reports.append({"name": sub.name, "summary": summary})
+    return jsonify({"reports": reports})
