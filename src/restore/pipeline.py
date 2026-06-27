@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import time
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import replace
 
 from PIL import Image
 
