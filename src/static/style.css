@@ -132,7 +132,6 @@ main { flex: 1; display: flex; min-height: 0; }
   font-size: 12px;
 }
 #toolbar button:hover { background: #f0f0f0; }
-#zoom-pct { min-width: 48px; text-align: center; }
 
 #canvas {
   flex: 1;
@@ -143,15 +142,6 @@ main { flex: 1; display: flex; min-height: 0; }
   align-items: center;
   justify-content: center;
 }
-#main-image {
-  max-width: 100%;
-  max-height: 100%;
-  user-select: none;
-  transition: transform 0.05s ease-out;
-  transform-origin: center center;
-}
-#main-image.grabbing { cursor: grabbing; }
-#main-image.grabbable { cursor: grab; }
 
 .nav-arrow {
   position: absolute;
@@ -174,19 +164,27 @@ main { flex: 1; display: flex; min-height: 0; }
 #prev { left: 12px; }
 #next { right: 12px; }
 
-#error-overlay {
-  position: absolute;
-  inset: 0;
-  background: rgba(0,0,0,0.6);
-  color: #fff;
+#status-panel {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  z-index: 3;
+  gap: 16px;
+  height: 100%;
+  color: #ccc;
 }
-.error-content { text-align: center; }
-.error-icon { font-size: 36px; margin-bottom: 8px; }
-#error-overlay a { color: #4a90e2; cursor: pointer; }
+
+#preview-thumb {
+  max-width: 320px;
+  max-height: 320px;
+  border: 1px solid #444;
+  border-radius: 4px;
+  background: #fff;
+}
+
+#status-text {
+  font-size: 14px;
+}
 
 #statusbar {
   height: 24px;
