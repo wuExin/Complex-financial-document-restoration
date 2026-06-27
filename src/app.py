@@ -92,6 +92,8 @@ def _find_original_path(subset: str, uuid: str) -> Path | None:
 
 @app.route("/open/<subset>/<uuid>", methods=["POST"])
 def open_image(subset: str, uuid: str):
+    if "/" in subset or "\\" in subset or ".." in subset:
+        abort(404)
     if "/" in uuid or "\\" in uuid or ".." in uuid:
         abort(404)
     img_path = _find_original_path(subset, uuid)
