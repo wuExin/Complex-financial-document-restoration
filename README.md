@@ -53,4 +53,5 @@ pytest tests/ -v
 
 - 规格：`docs/superpowers/specs/2026-06-25-image-gallery-design.md`
 - 实现计划：`docs/superpowers/plans/2026-06-25-image-gallery.md`
-- OS 查看器重构：`docs/superpowers/specs/2026-06-27-open-in-os-viewer-design.md` · `docs/superpowers/plans/2026-06-27-open-in-os-viewer.md`
+- OS 查看器重构规格：`docs/superpowers/specs/2026-06-27-open-in-os-viewer-design.md`
+- OS 查看器重构实现计划：`docs/superpowers/plans/2026-06-27-open-in-os-viewer.md`
