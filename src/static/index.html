@@ -24,26 +24,18 @@
         <span id="filename" class="mono">未选择</span>
         <span id="file-meta" class="meta"></span>
         <div class="spacer"></div>
-        <button id="zoom-out" title="缩小">−</button>
-        <span id="zoom-pct" class="mono">100%</span>
-        <button id="zoom-in" title="放大">+</button>
-        <button id="rotate" title="旋转 90°">⟲</button>
-        <button id="fit" title="适配窗口">⤢</button>
+        <span id="position-info" class="mono">—</span>
       </div>
       <div id="canvas">
         <button id="prev" class="nav-arrow" title="上一张">‹</button>
-        <img id="main-image" alt="" draggable="false">
-        <button id="next" class="nav-arrow" title="下一张">›</button>
-        <div id="error-overlay" hidden>
-          <div class="error-content">
-            <div class="error-icon">⚠</div>
-            <div>加载失败，<a href="#" id="retry-link">点击重试</a></div>
-          </div>
+        <div id="status-panel">
+          <img id="preview-thumb" alt="" hidden>
+          <div id="status-text">点击左侧缩略图用系统查看器打开</div>
         </div>
+        <button id="next" class="nav-arrow" title="下一张">›</button>
       </div>
       <div id="statusbar">
-        <span id="position-info">—</span>
-        <span id="hint">← → 翻页 · 滚轮缩放 · 拖拽平移</span>
+        <span id="hint">← → 翻页</span>
       </div>
     </section>
   </main>
