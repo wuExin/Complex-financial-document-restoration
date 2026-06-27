@@ -141,15 +141,13 @@ class HTTPFinixClient:
 
     def _call_with_retry(self, image_bytes: bytes) -> str:
         delay = 1.0
-        last_exc: Exception | None = None
         for attempt in range(self.max_retries):
             try:
                 return self._post_and_parse(image_bytes)
             except _ApiError:
                 # 业务级错误不重试
                 return ""
-            except Exception as e:  # noqa: BLE001
-                last_exc = e
+            except Exception:  # noqa: BLE001
                 if attempt < self.max_retries - 1:
                     time.sleep(delay)
                     delay *= 2
