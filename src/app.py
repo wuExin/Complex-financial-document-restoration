@@ -106,39 +106,6 @@ def open_image(subset: str, uuid: str):
     return jsonify({"ok": True})
 
 
-def _find_image_path(subset: str, uuid: str) -> Path | None:
-    """Look up the browser-safe preview path for (subset, uuid) in the manifest.
-
-    Serves the downsampled preview (long edge 2000px) rather than the original,
-    because real AFAC scans reach 138M+ pixels which exceeds the browser's
-    `<img>` decode limit and triggers onerror even on HTTP 200.
-    """
-    try:
-        manifest = _load_manifest()
-    except FileNotFoundError:
-        return None
-    subset_data = manifest.get("subsets", {}).get(subset)
-    if not subset_data:
-        return None
-    for img in subset_data.get("images", []):
-        if img["uuid"] == uuid:
-            preview_rel = img.get("preview_path")
-            if not preview_rel:
-                return None
-            return OUTPUTS_DIR / "previews" / preview_rel
-    return None
-
-
-@app.route("/image/<subset>/<uuid>")
-def get_image(subset: str, uuid: str):
-    if "/" in uuid or "\\" in uuid or ".." in uuid:
-        abort(404)
-    img_path = _find_image_path(subset, uuid)
-    if img_path is None or not img_path.is_file():
-        abort(404)
-    return send_from_directory(img_path.parent, img_path.name)
-
-
 @app.route("/")
 def get_index():
     return send_from_directory(STATIC_DIR, "index.html")
