@@ -145,7 +145,6 @@ if __name__ == "__main__":
 # 这两个路由把流水线暴露给浏览器，便于交互式调参。
 # Phase 1 只返回 JSON；前端可视化推迟到后续 phase。
 
-import json as _json
 from pathlib import Path as _Path
 from typing import Any as _Any
 
