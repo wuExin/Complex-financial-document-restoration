@@ -128,19 +128,6 @@ def find_port(start: int = 5000, end: int = 5010) -> int:
     raise RuntimeError(f"no available port in [{start}, {end}]")
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--port", type=int, default=None, help="Port (default: auto-pick 5000+)")
-    args = parser.parse_args()
-    port = args.port or find_port()
-    print(f"[info] serving on http://127.0.0.1:{port}")
-    app.run(host="127.0.0.1", port=port, debug=False)
-
-
-if __name__ == "__main__":
-    main()
-
-
 # ===== Restore Pipeline API Routes =====
 # 这两个路由把流水线暴露给浏览器，便于交互式调参。
 # Phase 1 只返回 JSON；前端可视化推迟到后续 phase。
@@ -239,3 +226,16 @@ def api_eval_list() -> _Any:
         )
         reports.append({"name": sub.name, "summary": summary})
     return jsonify({"reports": reports})
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--port", type=int, default=None, help="Port (default: auto-pick 5000+)")
+    args = parser.parse_args()
+    port = args.port or find_port()
+    print(f"[info] serving on http://127.0.0.1:{port}")
+    app.run(host="127.0.0.1", port=port, debug=False)
+
+
+if __name__ == "__main__":
+    main()
