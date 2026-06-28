@@ -53,9 +53,9 @@ function selectSubset(key) {
   $searchInput.value = "";
   renderTabs();
   renderSidebar();
-  // Auto-select first image
+  // Auto-select first image (no auto-launch — user clicks thumbnail to open)
   if (state.currentImages.length > 0) {
-    showImage(0);
+    showImage(0, false);
   } else {
     clearViewer();
   }
@@ -88,7 +88,7 @@ function renderSidebar() {
   }
 }
 
-async function showImage(index) {
+async function showImage(index, launchViewer = true) {
   if (index < 0 || index >= state.currentImages.length) return;
   state.currentIndex = index;
   const img = state.currentImages[index];
@@ -103,6 +103,10 @@ async function showImage(index) {
   // Show preview thumbnail (visual context for what's selected)
   $previewThumb.hidden = false;
   $previewThumb.src = `/thumb/${state.currentSubset}/${img.uuid}.jpg`;
+  if (!launchViewer) {
+    $statusText.textContent = "点击左侧缩略图用系统查看器打开";
+    return;
+  }
   // Fire OS viewer
   $statusText.textContent = "正在打开…";
   try {
@@ -139,7 +143,7 @@ $searchInput.addEventListener("input", (e) => {
   state.searchQuery = e.target.value;
   renderSidebar();
   if (state.currentImages.length > 0) {
-    showImage(0);
+    showImage(0, false);
   } else {
     clearViewer();
   }
